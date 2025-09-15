@@ -1,0 +1,18 @@
+1. Write a pair selection algorithm that given a universe, selects plausible trading pairs.
+
+   For all pairs in universe:
+
+   - Check that their time series of prices are both integrated of the same order, I(1) (non-stationary) using the Augmented Dickey Fullter Test (ADF)
+   - Check they are cointegrated using Engle and Granger 2 step approach
+   - Check that they are cointegrated using the Johansen's approach
+
+2. Write a function that, for a given time period, generates daily portfolio weights based on trading signals
+
+- Decide spread calculation
+- Decide entrance/exit signals
+- Write function that will equal beta weight asset pairs
+  (this might be a future thing)
+
+3. Write a simulation function that that takes in an arbitrary set of assets and weights as input and calculates portfolio returns. This is an effort to decouple signal and weight generation from simulation.
+
+- Must account for transaction costs
