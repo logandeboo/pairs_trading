@@ -9,6 +9,7 @@ import os
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 import requests
+from pathlib import Path
 
 
 # for ticker and date range
@@ -18,144 +19,45 @@ import requests
 #   then read it from on prem
 
 
-def get_path_to_adj_close_history_cache(ticker: str) -> str:
-    return f"../data/adj_close_price_data/{ticker}.csv"
-
-
-def get_price_history_from_yf(
-    ticker: str,
-    start_date: datetime,
-    end_date: datetime,
+def read_adj_close_history_df_from_on_prem(
+    path: str, start_date: datetime, end_date: datetime
 ) -> pd.DataFrame:
-    price_column_name_suffix = "_adj_close"
-    price_history_df = yf.download(
-        ticker,
-        start=start_date,
-        end=end_date,
-        progress=False,
-        auto_adjust=True,
-    )["Close"]
-    price_history_df.columns = [
-        f"{col_name + price_column_name_suffix}"
-        for col_name in price_history_df.columns
+    price_history_df = pd.read_csv(path, index_col=0, parse_dates=True)
+    return price_history_df[
+        (price_history_df.index >= start_date) & (price_history_df.index <= end_date)
     ]
-    return price_history_df
 
 
-def get_updated_existing_price_history_df(
-    ticker: str,
-    existing_price_history_df: pd.DataFrame,
-    start_date: datetime,
-    end_date: datetime,
-) -> pd.DataFrame:
-    path_to_ticker_data = get_path_to_adj_close_history_cache(ticker)
-    oldest_existing_day = existing_price_history_df.index[0]
-    newest_existing_day = existing_price_history_df.index[-1]
-
-    if start_date < oldest_existing_day:
-        missing_older_prices_df = get_price_history_from_yf(
-            ticker, start_date, oldest_existing_day - timedelta(days=1)
-        )
-        existing_price_history_df = pd.concat(
-            [missing_older_prices_df, existing_price_history_df]
-        )
-
-    if end_date > newest_existing_day:
-        missing_newer_prices_df = get_price_history_from_yf(
-            ticker, newest_existing_day + timedelta(days=1), end_date
-        )
-        existing_price_history_df = pd.concat(
-            [existing_price_history_df, missing_newer_prices_df]
-        )
-    existing_price_history_df = existing_price_history_df[
-        ~existing_price_history_df.index.duplicated(keep="last")
-    ]
-    existing_price_history_df.to_csv(path_to_ticker_data, index=False)
-    return existing_price_history_df
-
-
-def get_cached_adj_close_price_history(
-    ticker: str,
-    start_date: datetime,
-    end_date: datetime,
-) -> pd.DataFrame:
-    path_to_ticker_data = get_path_to_adj_close_history_cache(ticker)
-    if os.path.exists(path_to_ticker_data):
-        existing_price_history_df = pd.read_csv(path_to_ticker_data)
-        return get_updated_existing_price_history_df(
-            ticker,
-            existing_price_history_df,
-            start_date,
-            end_date,
-        )
-    else:
-        missing_prices_df = get_price_history_from_yf(ticker, start_date, end_date)
-        missing_prices_df.to_csv(path_to_ticker_data, index=False)
-
-
-def get_adj_close_history_df_NEW(
-    tickers: tuple[str, str], start_date: datetime, end_date: datetime
-) -> pd.DataFrame:
-    historical_adj_close_all_tickers_df = pd.DataFrame()
-    for ticker in tickers:
-        historical_adj_close_single_ticker_df = get_cached_adj_close_price_history(
-            ticker
-        )
-        historical_adj_close_all_tickers_df = pd.concat(
-            [
-                historical_adj_close_all_tickers_df,
-                historical_adj_close_single_ticker_df,
-            ],
-            axis=1,
-        )
-    return historical_adj_close_all_tickers_df
-
-
-def get_adj_close_history_df(
+def get_stocks_adj_close_history_df(
     tickers: list[str], start_date: datetime, end_date: datetime
+) -> tuple[pd.Series, pd.Series]:
+    all_tickers_price_history_df = pd.DataFrame()
+    for ticker in tickers:
+        path_to_ticker_data = Path(f"data/adj_close_price_data/{ticker}.csv")
+        ticker_price_history_df = read_adj_close_history_df_from_on_prem(
+            path_to_ticker_data, start_date, end_date
+        )
+        all_tickers_price_history_df = pd.concat(
+            [all_tickers_price_history_df, ticker_price_history_df], axis=1
+        )
+    return all_tickers_price_history_df
+
+
+def get_benchmark_adj_close_history_df(
+    benchmark_ticker: str, start_date: datetime, end_date: datetime
 ) -> pd.DataFrame:
-    price_column_name_suffix = "_price"
-    prices_df = yf.download(
-        tickers, start=start_date, end=end_date, progress=False, auto_adjust=True
-    )["Close"]
-    prices_df.columns = [
-        f"{col_name + price_column_name_suffix}" for col_name in prices_df.columns
-    ]
-    return prices_df.dropna()
-
-
-def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
-    pair_price_returns_df = price_history_df.pct_change() * 100
-    pair_price_returns_df.columns = pair_price_returns_df.columns.str.replace(
-        r"_price$", "_1d_returns", regex=True
+    path_to_benchmark_data = Path(
+        f"data/adj_close_price_data_benchmarks/{benchmark_ticker}.csv"
     )
-    return pair_price_returns_df
+    return read_adj_close_history_df_from_on_prem(
+        path_to_benchmark_data, start_date, end_date
+    )
 
 
 def calculate_regression_coefficient(Y: pd.Series, X: pd.Series, x_label: str) -> float:
     X = sm.add_constant(X)
     results = sm.OLS(Y, X).fit()
     return float(results.params[x_label])
-
-
-def calculate_historical_beta_at_date(ticker: str, cur_date: datetime) -> float:
-    benchmark_ticker = "IWV"  # russell 3000 etf
-    beta_calculation_window_in_days = (
-        365 * 3 + 1
-    )  # adding one to get returns for full period
-    beta_calculation_period_start = cur_date - timedelta(
-        days=beta_calculation_window_in_days
-    )
-    prices_df = get_adj_close_history_df(
-        [ticker, benchmark_ticker],
-        beta_calculation_period_start,
-        cur_date,
-    )
-    returns_df = create_returns_from_price_history(prices_df).dropna()
-    returns_df.columns = returns_df.columns.str.replace(r"_1d_returns", "", regex=True)
-    return calculate_regression_coefficient(
-        returns_df[ticker], returns_df[benchmark_ticker], benchmark_ticker
-    )
 
 
 def is_price_series_integrated_of_order_one(
@@ -183,7 +85,12 @@ def is_pair_engle_granger_cointegrated(
 # TODO underwrite det_order and k_ar_diff parameter values
 # current parameter values are from chatgpt
 # also corroborated here https://blog.quantinsti.com/johansen-test-cointegration-building-stationary-portfolio/
-def is_pair_johansen_cointegrated(pair_price_history_df: pd.DataFrame) -> bool:
+def is_pair_johansen_cointegrated(
+    stock_and_benchmark_price_history_df: pd.DataFrame, ticker_one: str, ticker_two: str
+) -> bool:
+    pair_price_history_df = stock_and_benchmark_price_history_df[
+        [ticker_one, ticker_two]
+    ]
     johansen_cointegration_result = coint_johansen(
         pair_price_history_df.values, det_order=0, k_ar_diff=1
     )
@@ -196,12 +103,27 @@ def is_pair_johansen_cointegrated(pair_price_history_df: pd.DataFrame) -> bool:
     return trace_stat > critical_value
 
 
-def are_historical_betas_close_enough(
-    as_of_date: datetime, ticker_one: str, ticker_two: str
+def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
+    pair_price_returns_df = price_history_df.pct_change() * 100
+    return pair_price_returns_df
+
+
+def are_pair_betas_close_enough(
+    ticker_one: str,
+    ticker_two: str,
+    benchmark_ticker: str,
+    stock_and_benchmark_price_history_df: pd.DataFrame,
 ) -> bool:
     beta_absolute_difference_threshold = 0.3
-    ticker_one_beta = calculate_historical_beta_at_date(ticker_one, as_of_date)
-    ticker_two_beta = calculate_historical_beta_at_date(ticker_two, as_of_date)
+    ticker_one_price_series = stock_and_benchmark_price_history_df[ticker_one]
+    ticker_two_price_series = stock_and_benchmark_price_history_df[ticker_two]
+    benchmark_price_series = stock_and_benchmark_price_history_df[benchmark_ticker]
+    ticker_one_beta = calculate_regression_coefficient(
+        ticker_one_price_series, benchmark_price_series, benchmark_ticker
+    )
+    ticker_two_beta = calculate_regression_coefficient(
+        ticker_two_price_series, benchmark_price_series, benchmark_ticker
+    )
     is_close_enough = np.isclose(
         ticker_one_beta,
         ticker_two_beta,
@@ -211,45 +133,65 @@ def are_historical_betas_close_enough(
     return bool(is_close_enough)
 
 
+def get_stock_and_benchmark_prices_df_algined_on_date(
+    ticker_one: str,
+    ticker_two: str,
+    benchmark_ticker: str,
+    beta_calculation_period_start: datetime,
+    end_date: datetime,
+) -> pd.DataFrame:
+    pair_price_history_df = get_stocks_adj_close_history_df(
+        [ticker_one, ticker_two], beta_calculation_period_start, end_date
+    )
+    benchmark_price_history_df = get_benchmark_adj_close_history_df(
+        benchmark_ticker, beta_calculation_period_start, end_date
+    )
+    return benchmark_price_history_df.merge(
+        pair_price_history_df, how="inner", left_index=True, right_index=True
+    ).dropna()
+
+
 # NOTE: This methodology (ex beta filter) came from Caldeira & Caldeira 2013. Paper is in references folder
 def is_pair_tradable(
     ticker_one: str,
     ticker_two: str,
-    start_date: datetime,
     end_date: datetime,
+    benchmark_ticker: str,
     beta_estimation_window_in_days: int,
 ) -> bool:
     beta_calculation_period_start = end_date - timedelta(
         days=beta_estimation_window_in_days
     )
     try:
-        pair_price_history_df = get_adj_close_history_df(
-            ticker_one, ticker_two, beta_calculation_period_start, end_date
+        stock_and_benchmark_price_history_df = (
+            get_stock_and_benchmark_prices_df_algined_on_date(
+                ticker_one,
+                ticker_two,
+                benchmark_ticker,
+                beta_calculation_period_start,
+                end_date,
+            )
         )
-        if not are_historical_betas_close_enough(end_date, ticker_one, ticker_two):
-            print(f"Pair {ticker_one + '/' + ticker_two} betas are not close enough")
+        if not are_pair_betas_close_enough(
+            ticker_one,
+            ticker_two,
+            benchmark_ticker,
+            stock_and_benchmark_price_history_df,
+        ):
             return False
-        ticker1_price_series = pair_price_history_df.iloc[:, 0]
-        ticker2_price_series = pair_price_history_df.iloc[:, 1]
-        if not is_price_series_integrated_of_order_one(ticker1_price_series):
-            print(
-                f"Pair {ticker_one + '/' + ticker_two} first ticker series is not I(1)"
-            )
+        ticker_one_price_series = stock_and_benchmark_price_history_df[ticker_one]
+        ticker_two_price_series = stock_and_benchmark_price_history_df[ticker_two]
+        if not is_price_series_integrated_of_order_one(ticker_one_price_series):
             return False
-        if not is_price_series_integrated_of_order_one(ticker2_price_series):
-            print(
-                f"Pair {ticker_one + '/' + ticker_two} second ticker series is not I(1)"
-            )
+        if not is_price_series_integrated_of_order_one(ticker_two_price_series):
             return False
         if not is_pair_engle_granger_cointegrated(
-            ticker1_price_series, ticker2_price_series
+            ticker_one_price_series, ticker_two_price_series
         ):
-            print(
-                f"Pair {ticker_one + '/' + ticker_two} is not engle granger cointegrated"
-            )
             return False
-        if not is_pair_johansen_cointegrated(pair_price_history_df):
-            print(f"Pair {ticker_one + '/' + ticker_two} is not johansen cointegrated")
+        if not is_pair_johansen_cointegrated(
+            stock_and_benchmark_price_history_df, ticker_one, ticker_two
+        ):
             return False
         return True
     except Exception as e:
@@ -264,7 +206,7 @@ def calculate_historical_gamma(
     in_sample_end_date: datetime,
 ) -> float:
     """
-    Estimate gamma via OLS and return the spread = P1 - gamma * P2
+    Estimate gamma via OLS and return spread = P1 - gamma * P2
     """
     date_mask = (pair_price_history_df.index >= in_sample_start_date) & (
         pair_price_history_df.index <= in_sample_end_date
@@ -343,9 +285,14 @@ def plot_zscore_zeries(zscore_series: pd.Series):
     plt.show()
 
 
+def get_ticker_list(path_to_ticker_list: Path) -> list[tuple[str, str]]:
+    ticker_df = pd.read_csv(path_to_ticker_list)
+    return ticker_df["Ticker"].to_list()
+
+
 def get_ticker_pairs() -> list[tuple]:
-    ticker_df = pd.read_csv("../data/russell_3000_constituents.csv")
-    tickers = ticker_df["Ticker"].to_list()
+    path_to_ticker_list = Path("data/russell_3000_constituents.csv")
+    tickers = get_ticker_list(path_to_ticker_list)
     pairs = []
     for ticker_one in tickers:
         for ticker_two in tickers:
@@ -366,19 +313,30 @@ if __name__ == "__main__":
     seen_pairs = []
     start_date = datetime(2022, 1, 1)
     end_date = datetime(2023, 12, 31)
+    benchmark_ticker = "IWV"
+    beta_estimation_window_in_calendar_days = 265 * 3 + 1
+    valid_pairs_output_path = Path(f"data/valid_pairs_{datetime.now()}.csv")
 
     pairs = get_ticker_pairs()
 
     for pair in pairs:
         if sorted(pair) in seen_pairs:
             continue
-        if is_pair_tradable(pair, start_date, end_date):
-            print("VALID:", pair)
+        ticker_one = pair[0]
+        ticker_two = pair[1]
+        if is_pair_tradable(
+            ticker_one,
+            ticker_two,
+            start_date,
+            end_date,
+            benchmark_ticker,
+            beta_estimation_window_in_calendar_days,
+        ):
             valid_pairs.append(pair)
             pd.DataFrame({"Valid Pairs": [pair]}).to_csv(
-                "../data/valid_sp500_pairs.csv",
-                mode="a",  # append mode
-                header=False,  # don’t write header again
+                valid_pairs_output_path,
+                mode="a",
+                header=False,
                 index=False,
             )
         seen_pairs.append(sorted(pair))
