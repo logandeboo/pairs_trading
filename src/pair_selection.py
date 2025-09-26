@@ -302,19 +302,26 @@ def get_ticker_pairs() -> list[tuple]:
     return pairs
 
 
+# NOTE For practical reasons all data this function requires must be written to
+# target folders beforehand
+
 # TODO should eventually create a generic abstraction that takes
 # a universe (list of tickers) and returns a collection of tradable pairs.
 # But that computation is time consuming and I already have a list of candidate pairs
 # so I'm going to start there for now.
 
 
+# TODO the benchmark constituents are not PIT so there is technically survivorship bias
+
+# TODO add a check that ensures the series being used to calculate beta
+# are of a certain length
 if __name__ == "__main__":
     valid_pairs = []
     seen_pairs = []
     start_date = datetime(2022, 1, 1)
     end_date = datetime(2023, 12, 31)
     benchmark_ticker = "IWV"
-    beta_estimation_window_in_calendar_days = 265 * 3 + 1
+    beta_estimation_window_in_calendar_days = 365 * 3 + 1
     valid_pairs_output_path = Path(f"data/valid_pairs_{datetime.now()}.csv")
 
     pairs = get_ticker_pairs()
