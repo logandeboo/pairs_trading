@@ -8,15 +8,49 @@ from datetime import datetime, date, timedelta
 import os
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
-import requests
+from collections.abc import Mapping
 from pathlib import Path
+from itertools import combinations
 
 
-# for ticker and date range
-# if data on prem --> return
-# if data is only partially on prem
-#   query the missing portion and write it to db
-#   then read it from on prem
+# Bui & Slepaczuk methodology
+# TODO underwrite num_lags
+def calculate_generalized_hurst_exponent_q1(series: pd.Series) -> float:
+    if len(series) < 100:
+        return np.nan
+    
+    data = np.array(series.dropna())
+    max_tau = len(data) // 4
+
+    min_lag = 2
+    num_lags = 20
+    tau_values = np.unique(np.logspace(np.log10(min_lag), np.log10(max_tau), num_lags).astype(int))
+
+    # Calculate K_q(τ) for each lag value
+    K_q_values = []
+
+    for tau in tau_values:
+
+        increments = np.abs(data[tau:] - data[:-tau])
+        K_q_tau = np.mean(increments)
+        K_q_values.append(K_q_tau)
+
+    K_q_values = np.array(K_q_values)
+
+    # Fit power law relationship
+    log_tau = np.log(tau_values)
+    log_K_q = np.log(K_q_values)
+
+    valid_mask = np.isfinite(log_K_q) & np.isfinite(log_tau)
+    if np.sum(valid_mask) < 3:
+        return np.nan
+    
+    log_tau_valid = log_tau[valid_mask]
+    log_K_q_valid = log_K_q[valid_mask]
+
+    # Linear regression: log(K_q) = H * log(τ) + intercept
+    hurst_exponent, _ = np.polyfit(log_tau_valid, log_K_q_valid, 1)
+    return hurst_exponent
 
 
 def read_adj_close_history_df_from_on_prem(
@@ -105,7 +139,7 @@ def is_pair_johansen_cointegrated(
 
 def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
     pair_price_returns_df = price_history_df.pct_change() * 100
-    return pair_price_returns_df
+    return pair_price_returns_df.dropna()
 
 
 def are_pair_betas_close_enough(
@@ -115,14 +149,15 @@ def are_pair_betas_close_enough(
     stock_and_benchmark_price_history_df: pd.DataFrame,
 ) -> bool:
     beta_absolute_difference_threshold = 0.3
-    ticker_one_price_series = stock_and_benchmark_price_history_df[ticker_one]
-    ticker_two_price_series = stock_and_benchmark_price_history_df[ticker_two]
-    benchmark_price_series = stock_and_benchmark_price_history_df[benchmark_ticker]
+    stock_and_benchmark_returns_df = create_returns_from_price_history(stock_and_benchmark_price_history_df)
+    ticker_one_returns_series = stock_and_benchmark_returns_df[ticker_one]
+    ticker_two_returns_series = stock_and_benchmark_returns_df[ticker_two]
+    benchmark_returns_series = stock_and_benchmark_returns_df[benchmark_ticker]
     ticker_one_beta = calculate_regression_coefficient(
-        ticker_one_price_series, benchmark_price_series, benchmark_ticker
+        ticker_one_returns_series, benchmark_returns_series, benchmark_ticker
     )
     ticker_two_beta = calculate_regression_coefficient(
-        ticker_two_price_series, benchmark_price_series, benchmark_ticker
+        ticker_two_returns_series, benchmark_returns_series, benchmark_ticker
     )
     is_close_enough = np.isclose(
         ticker_one_beta,
@@ -137,18 +172,21 @@ def get_stock_and_benchmark_prices_df_algined_on_date(
     ticker_one: str,
     ticker_two: str,
     benchmark_ticker: str,
-    beta_calculation_period_start: datetime,
+    start_date: datetime,
     end_date: datetime,
+    all_tickers_price_history: Mapping[str, pd.DataFrame],
+    benhcmark_price_history: Mapping[str, pd.DataFrame]
 ) -> pd.DataFrame:
-    pair_price_history_df = get_stocks_adj_close_history_df(
-        [ticker_one, ticker_two], beta_calculation_period_start, end_date
+    stock_and_benchmark_prices_df = pd.concat(
+        [
+            all_tickers_price_history[ticker_one],
+            all_tickers_price_history[ticker_two],
+            benhcmark_price_history[benchmark_ticker]
+        ], axis=1
     )
-    benchmark_price_history_df = get_benchmark_adj_close_history_df(
-        benchmark_ticker, beta_calculation_period_start, end_date
-    )
-    return benchmark_price_history_df.merge(
-        pair_price_history_df, how="inner", left_index=True, right_index=True
-    ).dropna()
+    return stock_and_benchmark_prices_df[
+        (stock_and_benchmark_prices_df.index >= start_date) & (stock_and_benchmark_prices_df.index <= end_date)
+    ].dropna()
 
 
 # NOTE: This methodology (ex beta filter) came from Caldeira & Caldeira 2013. Paper is in references folder
@@ -158,6 +196,8 @@ def is_pair_tradable(
     end_date: datetime,
     benchmark_ticker: str,
     beta_estimation_window_in_days: int,
+    all_tickers_price_history: Mapping[str, pd.DataFrame],
+    benhcmark_price_history: Mapping[str, pd.DataFrame]
 ) -> bool:
     beta_calculation_period_start = end_date - timedelta(
         days=beta_estimation_window_in_days
@@ -170,6 +210,8 @@ def is_pair_tradable(
                 benchmark_ticker,
                 beta_calculation_period_start,
                 end_date,
+                all_tickers_price_history,
+                benhcmark_price_history
             )
         )
         if not are_pair_betas_close_enough(
@@ -290,16 +332,32 @@ def get_ticker_list(path_to_ticker_list: Path) -> list[tuple[str, str]]:
     return ticker_df["Ticker"].to_list()
 
 
-def get_ticker_pairs() -> list[tuple]:
-    path_to_ticker_list = Path("data/russell_3000_constituents.csv")
-    tickers = get_ticker_list(path_to_ticker_list)
-    pairs = []
-    for ticker_one in tickers:
-        for ticker_two in tickers:
-            if ticker_one == ticker_two:
-                continue
-            pairs.append((ticker_one, ticker_two))
-    return pairs
+
+def get_ticker_pairs(all_tickers_price_history_dict: Mapping[str, pd.DataFrame]) -> list[tuple]:
+    tickers = list(all_tickers_price_history_dict.keys())
+    return list(combinations(tickers, 2))
+
+# TODO fix this str path
+def read_stock_price_history_into_dict(path_to_ticker_list: Path) -> Mapping[str, pd.DataFrame]:
+    prices_dict = {}
+    for ticker in get_ticker_list(path_to_ticker_list):
+        file_path = os.path.join(f"data/adj_close_price_data/{ticker}.csv")
+        try:
+            prices_dict[ticker] = pd.read_csv(file_path, index_col=0, parse_dates=True)
+        except FileNotFoundError:
+            print(f"No data found for ticker: {ticker}")
+            continue
+    return prices_dict
+
+def read_benchmark_price_history_into_dict(benchmark_ticker: str) -> Mapping[str, pd.DataFrame]:
+
+    prices_dict = {}
+    path_to_benchmark_price_data = Path(
+        f"data/adj_close_price_data_benchmarks/{benchmark_ticker}.csv"
+    )
+    prices_dict[benchmark_ticker] = pd.read_csv(path_to_benchmark_price_data, index_col=0, parse_dates=True)
+    return prices_dict
+
 
 
 # NOTE For practical reasons all data this function requires must be written to
@@ -310,34 +368,38 @@ def get_ticker_pairs() -> list[tuple]:
 # But that computation is time consuming and I already have a list of candidate pairs
 # so I'm going to start there for now.
 
-
 # TODO the benchmark constituents are not PIT so there is technically survivorship bias
 
 # TODO add a check that ensures the series being used to calculate beta
 # are of a certain length
 if __name__ == "__main__":
     valid_pairs = []
-    seen_pairs = []
+    seen_pairs = set()
     start_date = datetime(2022, 1, 1)
     end_date = datetime(2023, 12, 31)
     benchmark_ticker = "IWV"
     beta_estimation_window_in_calendar_days = 365 * 3 + 1
     valid_pairs_output_path = Path(f"data/valid_pairs_{datetime.now()}.csv")
 
-    pairs = get_ticker_pairs()
+    path_to_ticker_list = Path("data/russell_3000_constituents.csv")
 
-    for pair in pairs:
-        if sorted(pair) in seen_pairs:
-            continue
+    all_tickers_price_history_dict = read_stock_price_history_into_dict(path_to_ticker_list)
+    benhcmark_price_history_dict = read_benchmark_price_history_into_dict(benchmark_ticker)
+    pairs = get_ticker_pairs(all_tickers_price_history_dict)
+    breakpoint()
+    for i, pair in enumerate(pairs):
+        print(i)
         ticker_one = pair[0]
         ticker_two = pair[1]
+
         if is_pair_tradable(
             ticker_one,
             ticker_two,
-            start_date,
             end_date,
             benchmark_ticker,
             beta_estimation_window_in_calendar_days,
+            all_tickers_price_history_dict,
+            benhcmark_price_history_dict
         ):
             valid_pairs.append(pair)
             pd.DataFrame({"Valid Pairs": [pair]}).to_csv(
@@ -346,4 +408,47 @@ if __name__ == "__main__":
                 header=False,
                 index=False,
             )
-        seen_pairs.append(sorted(pair))
+
+# def check_pair(pair):
+#     if is_pair_tradable(
+#         pair[0],
+#         pair[1],
+#         end_date,
+#         benchmark_ticker,
+#         beta_estimation_window_in_calendar_days,
+#         all_tickers_price_history_dict,
+#         benchmark_price_history_dict
+#     ):
+#         return pair
+#     return None
+
+# from pathlib import Path
+# from datetime import datetime
+# import pandas as pd
+# from joblib import Parallel, delayed
+
+# if __name__ == "__main__":
+#     start_date = datetime(2022, 1, 1)
+#     end_date = datetime(2023, 12, 31)
+#     benchmark_ticker = "IWV"
+#     beta_estimation_window_in_calendar_days = 365 * 3 + 1
+#     valid_pairs_output_path = Path(f"data/valid_pairs_{datetime.now():%Y%m%d_%H%M%S}.csv")
+
+#     # Load tickers and generate all pairs
+#     path_to_ticker_list = Path("data/russell_3000_constituents.csv")
+#     pairs = get_ticker_pairs(path_to_ticker_list)
+#     breakpoint()
+
+#     # Preload all price histories into memory
+#     all_tickers_price_history_dict = read_stock_price_history_into_dict(path_to_ticker_list)
+#     benchmark_price_history_dict = read_benchmark_price_history_into_dict(benchmark_ticker)
+
+#     # Run in parallel using all CPU cores
+#     results = Parallel(n_jobs=-1, backend="loky")(
+#         delayed(check_pair)(pair) for pair in pairs
+#     )
+
+#     # Filter out None values and write all valid pairs once
+#     valid_pairs = [pair for pair in results if pair is not None]
+#     pd.DataFrame(valid_pairs, columns=["Valid Pairs"]).to_csv(valid_pairs_output_path, index=False)
+
