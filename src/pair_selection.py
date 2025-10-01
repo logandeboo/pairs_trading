@@ -1,12 +1,10 @@
 import pandas as pd
 import yfinance as yf
-from collections.abc import Collection
 from statsmodels.tsa.stattools import adfuller, coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 import numpy as np
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 import os
-import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from collections.abc import Mapping
 from pathlib import Path
@@ -19,13 +17,15 @@ from typing import Sequence
 def calculate_generalized_hurst_exponent_q1(series: pd.Series) -> float:
     if len(series) < 100:
         return np.nan
-    
+
     data = np.array(series.dropna())
     max_tau = len(data) // 4
 
     min_lag = 2
     num_lags = 20
-    tau_values = np.unique(np.logspace(np.log10(min_lag), np.log10(max_tau), num_lags).astype(int))
+    tau_values = np.unique(
+        np.logspace(np.log10(min_lag), np.log10(max_tau), num_lags).astype(int)
+    )
 
     # Calculate K_q(τ) for each lag value
     K_q_values = []
@@ -45,7 +45,7 @@ def calculate_generalized_hurst_exponent_q1(series: pd.Series) -> float:
     valid_mask = np.isfinite(log_K_q) & np.isfinite(log_tau)
     if np.sum(valid_mask) < 3:
         return np.nan
-    
+
     log_tau_valid = log_tau[valid_mask]
     log_K_q_valid = log_K_q[valid_mask]
 
@@ -150,7 +150,9 @@ def are_pair_betas_close_enough(
     stock_and_benchmark_price_history_df: pd.DataFrame,
 ) -> bool:
     beta_absolute_difference_threshold = 0.3
-    stock_and_benchmark_returns_df = create_returns_from_price_history(stock_and_benchmark_price_history_df)
+    stock_and_benchmark_returns_df = create_returns_from_price_history(
+        stock_and_benchmark_price_history_df
+    )
     ticker_one_returns_series = stock_and_benchmark_returns_df[ticker_one]
     ticker_two_returns_series = stock_and_benchmark_returns_df[ticker_two]
     benchmark_returns_series = stock_and_benchmark_returns_df[benchmark_ticker]
@@ -176,18 +178,21 @@ def get_stock_and_benchmark_price_history_df_algined_on_date(
     start_date: datetime,
     end_date: datetime,
     all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
-    benhcmark_price_history_dict: Mapping[str, pd.DataFrame]
+    benhcmark_price_history_dict: Mapping[str, pd.DataFrame],
 ) -> pd.DataFrame:
     stock_and_benchmark_price_history_df = pd.concat(
         [
             all_tickers_price_history_dict[ticker_one],
             all_tickers_price_history_dict[ticker_two],
-            benhcmark_price_history_dict[benchmark_ticker]
-        ], axis=1
+            benhcmark_price_history_dict[benchmark_ticker],
+        ],
+        axis=1,
     )
     return stock_and_benchmark_price_history_df[
-        (stock_and_benchmark_price_history_df.index >= start_date) & (stock_and_benchmark_price_history_df.index <= end_date)
+        (stock_and_benchmark_price_history_df.index >= start_date)
+        & (stock_and_benchmark_price_history_df.index <= end_date)
     ].dropna()
+
 
 # TODO this is basically identical to get_stock_and_benchmark_price_history_df_algined_on_date
 def get_pair_price_history_df_algined_on_date(
@@ -201,22 +206,31 @@ def get_pair_price_history_df_algined_on_date(
         [
             all_tickers_price_history_dict[ticker_one],
             all_tickers_price_history_dict[ticker_two],
-        ], axis=1
+        ],
+        axis=1,
     )
     return stock_price_history_df[
-        (stock_price_history_df.index >= start_date) & (stock_price_history_df.index <= end_date)
+        (stock_price_history_df.index >= start_date)
+        & (stock_price_history_df.index <= end_date)
     ].dropna()
 
+
 def filter_price_history_df_by_date(
-        start_date: datetime,
-        end_date: datetime,
-        stock_and_benchmark_price_history_df: pd.DataFrame,
+    start_date: datetime,
+    end_date: datetime,
+    stock_and_benchmark_price_history_df: pd.DataFrame,
 ) -> pd.DataFrame:
     return stock_and_benchmark_price_history_df[
-        (stock_and_benchmark_price_history_df.index >= start_date) & (stock_and_benchmark_price_history_df.index <= end_date)]
+        (stock_and_benchmark_price_history_df.index >= start_date)
+        & (stock_and_benchmark_price_history_df.index <= end_date)
+    ]
 
-def filter_price_history_df_by_ticker(ticker: str, stock_and_benchmark_price_history_df: pd.DataFrame) -> pd.Series:
+
+def filter_price_history_df_by_ticker(
+    ticker: str, stock_and_benchmark_price_history_df: pd.DataFrame
+) -> pd.Series:
     return stock_and_benchmark_price_history_df[ticker]
+
 
 # NOTE: This methodology (ex beta filter) came from Caldeira & Caldeira 2013. Paper is in references folder
 def is_pair_tradable(
@@ -227,7 +241,7 @@ def is_pair_tradable(
     benchmark_ticker: str,
     beta_estimation_window_in_days: int,
     all_tickers_price_history: Mapping[str, pd.DataFrame],
-    benhcmark_price_history: Mapping[str, pd.DataFrame]
+    benhcmark_price_history: Mapping[str, pd.DataFrame],
 ) -> bool:
     beta_calculation_period_start = end_date - timedelta(
         days=beta_estimation_window_in_days
@@ -241,7 +255,7 @@ def is_pair_tradable(
                 beta_calculation_period_start,
                 end_date,
                 all_tickers_price_history,
-                benhcmark_price_history
+                benhcmark_price_history,
             )
         )
         if not are_pair_betas_close_enough(
@@ -251,9 +265,17 @@ def is_pair_tradable(
             stock_and_benchmark_price_history_df,
         ):
             return False
-        stock_and_benchmark_price_history_filtered_by_date_df = filter_price_history_df_by_date(start_date, end_date, stock_and_benchmark_price_history_df)
-        ticker_one_price_series = filter_price_history_df_by_ticker(ticker_one, stock_and_benchmark_price_history_filtered_by_date_df)
-        ticker_two_price_series = filter_price_history_df_by_ticker(ticker_two, stock_and_benchmark_price_history_filtered_by_date_df)
+        stock_and_benchmark_price_history_filtered_by_date_df = (
+            filter_price_history_df_by_date(
+                start_date, end_date, stock_and_benchmark_price_history_df
+            )
+        )
+        ticker_one_price_series = filter_price_history_df_by_ticker(
+            ticker_one, stock_and_benchmark_price_history_filtered_by_date_df
+        )
+        ticker_two_price_series = filter_price_history_df_by_ticker(
+            ticker_two, stock_and_benchmark_price_history_filtered_by_date_df
+        )
         if not is_price_series_integrated_of_order_one(ticker_one_price_series):
             return False
         if not is_price_series_integrated_of_order_one(ticker_two_price_series):
@@ -274,17 +296,19 @@ def is_pair_tradable(
 
 
 def calculate_historical_gamma(
-        pair_price_history_df: pd.DataFrame, 
-        in_sample_start_date: datetime, 
-        in_sample_end_date: datetime
+    pair_price_history_df: pd.DataFrame,
+    in_sample_start_date: datetime,
+    in_sample_end_date: datetime,
 ) -> float:
     """
     Estimate gamma via OLS and return the spread = P1 - gamma * P2
     """
-    date_mask = (pair_price_history_df.index >= in_sample_start_date) & (pair_price_history_df.index <= in_sample_end_date)
-    pair_price_history_in_sample_df = pair_price_history_df[date_mask] 
-    ticker1_price_series = pair_price_history_in_sample_df.iloc[:,0]
-    ticker2_price_series = pair_price_history_in_sample_df.iloc[:,1]
+    date_mask = (pair_price_history_df.index >= in_sample_start_date) & (
+        pair_price_history_df.index <= in_sample_end_date
+    )
+    pair_price_history_in_sample_df = pair_price_history_df[date_mask]
+    ticker1_price_series = pair_price_history_in_sample_df.iloc[:, 0]
+    ticker2_price_series = pair_price_history_in_sample_df.iloc[:, 1]
 
     # Add constant to allow intercept in regression
     X = sm.add_constant(ticker2_price_series)
@@ -321,50 +345,22 @@ def calculate_trailing_zscore(
     return zscore_filtered_series
 
 
-# TODO add time series of prices on this graph for additional clarity
-def plot_zscore_zeries(zscore_series: pd.Series):
-    plt.figure(figsize=(14, 6))
-    plt.plot(zscore_series.index, zscore_series.values, label="Z-Score", color="blue")
-
-    # Horizontal lines for 1 and 2 standard deviations
-    for level in [1, 2]:
-        plt.axhline(
-            level,
-            color="gray",
-            linestyle="--",
-            linewidth=1,
-            label=f"+{level}σ" if level == 1 else None,
-        )
-        plt.axhline(
-            -level,
-            color="gray",
-            linestyle="--",
-            linewidth=1,
-            label=f"-{level}σ" if level == 1 else None,
-        )
-
-    # Only show one label per line for legend
-    handles, labels = plt.gca().get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    plt.legend(by_label.values(), by_label.keys())
-
-    plt.title("Trailing Z-Score of Spread (Out-of-Sample)")
-    plt.xlabel("Date")
-    plt.ylabel("Z-Score")
-    plt.grid(True)
-    plt.show()
-
 def get_ticker_list(path_to_ticker_list: Path) -> list[tuple[str, str]]:
     ticker_df = pd.read_csv(path_to_ticker_list)
     return ticker_df["Ticker"].to_list()
 
 
-def get_ticker_pairs(all_tickers_price_history_dict: Mapping[str, pd.DataFrame]) -> list[tuple]:
+def get_ticker_pairs(
+    all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
+) -> list[tuple]:
     tickers = list(all_tickers_price_history_dict.keys())
     return list(combinations(tickers, 2))
 
+
 # TODO fix this str path
-def read_stock_price_history_into_dict(path_to_ticker_list: Path) -> Mapping[str, pd.DataFrame]:
+def read_stock_price_history_into_dict(
+    path_to_ticker_list: Path,
+) -> Mapping[str, pd.DataFrame]:
     prices_dict = {}
     for ticker in get_ticker_list(path_to_ticker_list):
         file_path = os.path.join(f"data/adj_close_price_data/{ticker}.csv")
@@ -375,25 +371,31 @@ def read_stock_price_history_into_dict(path_to_ticker_list: Path) -> Mapping[str
             continue
     return prices_dict
 
-def read_benchmark_price_history_into_dict(benchmark_ticker: str) -> Mapping[str, pd.DataFrame]:
+
+def read_benchmark_price_history_into_dict(
+    benchmark_ticker: str,
+) -> Mapping[str, pd.DataFrame]:
     prices_dict = {}
     path_to_benchmark_price_data = Path(
         f"data/adj_close_price_data_benchmarks/{benchmark_ticker}.csv"
     )
-    prices_dict[benchmark_ticker] = pd.read_csv(path_to_benchmark_price_data, index_col=0, parse_dates=True)
+    prices_dict[benchmark_ticker] = pd.read_csv(
+        path_to_benchmark_price_data, index_col=0, parse_dates=True
+    )
     return prices_dict
+
 
 # TODO this probably won't need to write to disk once full walk-forward model is implemented
 def get_cointegrated_pairs_within_beta_range(
-        start_date: datetime,
-        end_date: datetime,
-        benchmark_ticker: str,
-        beta_estimation_window_in_calendar_days: int,
-        all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
-        benhcmark_price_history_dict: Mapping[str, pd.DataFrame],
-        valid_pairs_output_path: Path,
+    start_date: datetime,
+    end_date: datetime,
+    benchmark_ticker: str,
+    beta_estimation_window_in_calendar_days: int,
+    all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
+    benhcmark_price_history_dict: Mapping[str, pd.DataFrame],
+    valid_pairs_output_path: Path,
 ) -> Sequence[tuple[str, str]]:
-    
+
     pairs = get_ticker_pairs(all_tickers_price_history_dict)
     valid_pairs = []
     for i, pair in enumerate(pairs):
@@ -408,7 +410,7 @@ def get_cointegrated_pairs_within_beta_range(
             beta_estimation_window_in_calendar_days,
             benchmark_ticker,
             all_tickers_price_history_dict,
-            benhcmark_price_history_dict
+            benhcmark_price_history_dict,
         ):
             valid_pairs.append(pair)
             pd.DataFrame({"Valid Pairs": [pair]}).to_csv(
@@ -419,34 +421,30 @@ def get_cointegrated_pairs_within_beta_range(
             )
     return valid_pairs
 
+
 def get_hurst_exponent_for_pairs(
-        start_date: datetime,
-        end_date: datetime,
-        pairs: Sequence[tuple[str,str]],
-        all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
-        benhcmark_price_history_dict: Mapping[str, pd.DataFrame],
-) -> Sequence[tuple[str,str,float]]:
+    start_date: datetime,
+    end_date: datetime,
+    pairs: Sequence[tuple[str, str]],
+    all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
+    benhcmark_price_history_dict: Mapping[str, pd.DataFrame],
+) -> Sequence[tuple[str, str, float]]:
     pairs_and_husrt_exponents = []
     for pair in pairs:
         ticker_one = pair[0]
         ticker_two = pair[1]
-        pair_price_history_df = (
-            get_pair_price_history_df_algined_on_date(
-                ticker_one,
-                ticker_two,
-                benchmark_ticker,
-                start_date,
-                end_date,
-                all_tickers_price_history_dict,
-                benhcmark_price_history_dict
-            )
+        pair_price_history_df = get_pair_price_history_df_algined_on_date(
+            ticker_one,
+            ticker_two,
+            benchmark_ticker,
+            start_date,
+            end_date,
+            all_tickers_price_history_dict,
+            benhcmark_price_history_dict,
         )
         gamma = calculate_historical_gamma(pair_price_history_df, start_date, end_date)
         spread_series = calculate_spread(
-            pair_price_history_df,
-            gamma,
-            start_date,
-            end_date
+            pair_price_history_df, gamma, start_date, end_date
         )
         pairs_and_husrt_exponents.append(
             calculate_generalized_hurst_exponent_q1(spread_series)
@@ -470,8 +468,12 @@ if __name__ == "__main__":
     beta_estimation_window_in_calendar_days = 365 * 3 + 1
     valid_pairs_output_path = Path(f"data/valid_pairs_{datetime.now()}.csv")
     path_to_ticker_list = Path("data/russell_3000_constituents.csv")
-    all_tickers_price_history_dict = read_stock_price_history_into_dict(path_to_ticker_list)
-    benhcmark_price_history_dict = read_benchmark_price_history_into_dict(benchmark_ticker)
+    all_tickers_price_history_dict = read_stock_price_history_into_dict(
+        path_to_ticker_list
+    )
+    benhcmark_price_history_dict = read_benchmark_price_history_into_dict(
+        benchmark_ticker
+    )
 
     valid_pairs = get_cointegrated_pairs_within_beta_range(
         start_date,
@@ -481,7 +483,6 @@ if __name__ == "__main__":
         path_to_ticker_list,
         valid_pairs_output_path,
         all_tickers_price_history_dict,
-        benhcmark_price_history_dict
+        benhcmark_price_history_dict,
     )
-    hurst_components_of_pair_spreads = get_hurst_component_for_pairs()
-
+    hurst_components_of_pair_spreads = get_hurst_exponent_for_pairs()
