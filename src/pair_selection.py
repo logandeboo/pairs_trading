@@ -436,11 +436,9 @@ def get_hurst_exponent_for_pairs(
         pair_price_history_df = get_pair_price_history_df_algined_on_date(
             ticker_one,
             ticker_two,
-            benchmark_ticker,
             start_date,
             end_date,
             all_tickers_price_history_dict,
-            benhcmark_price_history_dict,
         )
         gamma = calculate_historical_gamma(pair_price_history_df, start_date, end_date)
         spread_series = calculate_spread(
@@ -464,10 +462,11 @@ def get_hurst_exponent_for_pairs(
 if __name__ == "__main__":
     start_date = datetime(2022, 1, 1)
     end_date = datetime(2023, 12, 31)
-    benchmark_ticker = "IWV"
     beta_estimation_window_in_calendar_days = 365 * 3 + 1
+    benchmark_ticker = "IWV"
     valid_pairs_output_path = Path(f"data/valid_pairs_{datetime.now()}.csv")
     path_to_ticker_list = Path("data/russell_3000_constituents.csv")
+
     all_tickers_price_history_dict = read_stock_price_history_into_dict(
         path_to_ticker_list
     )

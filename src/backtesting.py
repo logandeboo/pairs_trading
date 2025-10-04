@@ -8,9 +8,17 @@ from collections.abc import Mapping
 from pathlib import Path
 from itertools import combinations
 import ast
-from typing import Sequence
 
+# TODO consider adding file to hold common funcs
+from src.pair_selection import (
+    read_stock_price_history_into_dict,
+    calculate_spread,
+    calculate_historical_gamma,
+    get_pair_price_history_df_algined_on_date
+)
 
+# TODO consider triggering condition as the spread converges *back*
+# within range instead of as it exits
 def is_exit_condition_met(
     spread_z_score_series: pd.Series,
     t_minus_one_date: datetime,
@@ -82,7 +90,7 @@ def assign_weights_from_prev_date_to_cur_date(
     return weight_at_date_df
 
 
-def create_trade_signals_for_spread_z_score_series(
+def create_trade_signals_from_spread_rolling_z_score(
     ticker_pair: tuple[str, str],
     spread_z_score_series: pd.Series,
 ) -> pd.DataFrame:
@@ -149,15 +157,17 @@ def create_trade_signals_for_spread_z_score_series(
 
 def calculate_rolling_zscore(
     spread: pd.Series,
-    z_score_window_in_days: int,
     start_date: datetime,
     end_date: datetime,
+    *,
+    z_score_window_in_days: int,
 ) -> pd.Series:
     rolling_mean = spread.rolling(window=z_score_window_in_days).mean()
     rolling_std = spread.rolling(window=z_score_window_in_days).std()
-    zscore_series = (spread - rolling_mean) / rolling_std
-    zscore_filtered_series = zscore_series.loc[start_date:end_date]
-    return zscore_filtered_series
+    rolling_z_score = (spread - rolling_mean) / rolling_std
+    return rolling_z_score[
+        (rolling_z_score.index >= start_date) & (rolling_z_score.index <= end_date)
+    ]
 
 
 def get_tmp_hurst_exps_from_disk() -> pd.DataFrame:
@@ -179,6 +189,21 @@ def get_tmp_hurst_exps_from_disk() -> pd.DataFrame:
 if __name__ == "__main__":
     start_date = datetime(2022, 1, 1)
     end_date = datetime(2023, 12, 31)
+    path_to_ticker_list = Path("data/russell_3000_constituents.csv")
     tickers_and_hurst_exponents_df = get_tmp_hurst_exps_from_disk()
+    stock_price_history_dict = read_stock_price_history_into_dict(path_to_ticker_list)
+
+    # TODO loop over pairs from tickers_and_hurst_exponents_df to calculate each spread
+    pair_price_history_df = get_pair_price_history_df_algined_on_date(
+            ticker_one,
+            ticker_two,
+            start_date,
+            end_date,
+            all_tickers_price_history_dict,
+        )
+    gamma = calculate_historical_gamma(pair_price_history_df, start_date, end_date)
+    spread_series = calculate_spread(
+        pair_price_history_df, gamma, start_date, end_date
+    )
 
     breakpoint()
