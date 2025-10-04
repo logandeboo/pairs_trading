@@ -8,17 +8,22 @@ from collections.abc import Mapping
 from pathlib import Path
 from itertools import combinations
 import ast
-
-# TODO consider adding file to hold common funcs
+import sys
+# TODO this is a temporary workaround
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# TODO add file to hold common funcs
 from src.pair_selection import (
     read_stock_price_history_into_dict,
     calculate_spread,
     calculate_historical_gamma,
-    get_pair_price_history_df_algined_on_date
+    get_pair_price_history_df_algined_on_date,
+    create_returns_from_price_history
 )
 
+TRADE_SIDE_SUFFIX = '_trade_side'
+
 # TODO consider triggering condition as the spread converges *back*
-# within range instead of as it exits
+# within range instead of upon exit
 def is_exit_condition_met(
     spread_z_score_series: pd.Series,
     t_minus_one_date: datetime,
@@ -169,41 +174,101 @@ def calculate_rolling_zscore(
         (rolling_z_score.index >= start_date) & (rolling_z_score.index <= end_date)
     ]
 
+def calculate_z_score_from_coint_period(
+        spread: pd.Series,
+        start_date: datetime,
+        end_date: datetime
+) -> pd.Series:
+    mean = spread.mean()
+    std = spread.std()
+    z_scored_spread = (spread - mean) / std
+    return z_scored_spread[
+        (z_scored_spread.index >= start_date) & (z_scored_spread.index <= end_date)
+    ]
+
 
 def get_tmp_hurst_exps_from_disk() -> pd.DataFrame:
     pairs_and_hurst_exponents = pd.read_csv(
         "scratchwork/hurst_exponents.csv", index_col=0
     )
     pairs_and_hurst_exponents["0"] = pairs_and_hurst_exponents["0"].apply(
-        ast.literal_eval
+    ast.literal_eval
     )
-    pairs_and_hurst_exponents[["ticker_one", "ticker_two"]] = pd.DataFrame(
-        pairs_and_hurst_exponents["0"].tolist(), index=pairs_and_hurst_exponents.index
-    )
-    pairs_and_hurst_exponents = pairs_and_hurst_exponents.rename(
-        columns={"1": "hurst_exp"}
-    )
-    return pairs_and_hurst_exponents[["ticker_one", "ticker_two", "hurst_exp"]]
-
+    pairs_and_hurst_exponents.columns = ["ticker_pair", "hurst_exp"]
+    return pairs_and_hurst_exponents
 
 if __name__ == "__main__":
-    start_date = datetime(2022, 1, 1)
-    end_date = datetime(2023, 12, 31)
+    # NOTE dates are the one year period following the two year period
+    # that was screened for cointegration
+    z_score_window_in_calendar_days = 40
+    start_date = datetime(2024, 1, 1)
+    # TODO the +10 is a hack to account for calendar vs trading days. Fix this
+    start_date_adj_for_z_score_window = start_date - timedelta(days=z_score_window_in_calendar_days+10)
+    end_date = datetime(2024, 12, 31)
     path_to_ticker_list = Path("data/russell_3000_constituents.csv")
-    tickers_and_hurst_exponents_df = get_tmp_hurst_exps_from_disk()
-    stock_price_history_dict = read_stock_price_history_into_dict(path_to_ticker_list)
+    pairs_and_hurst_exponents = get_tmp_hurst_exps_from_disk()
+    all_tickers_price_history_dict = read_stock_price_history_into_dict(path_to_ticker_list)
 
-    # TODO loop over pairs from tickers_and_hurst_exponents_df to calculate each spread
-    pair_price_history_df = get_pair_price_history_df_algined_on_date(
-            ticker_one,
-            ticker_two,
-            start_date,
-            end_date,
-            all_tickers_price_history_dict,
+    for pair in pairs_and_hurst_exponents['ticker_pair']:
+        ticker_one = pair[0]
+        ticker_two = pair[1]
+        pair_price_history_df = get_pair_price_history_df_algined_on_date(
+                ticker_one,
+                ticker_two,
+                start_date_adj_for_z_score_window,
+                end_date,
+                all_tickers_price_history_dict,
+            )
+        gamma = calculate_historical_gamma(pair_price_history_df, start_date, end_date)
+        spread_series = calculate_spread(
+            pair_price_history_df, gamma, start_date_adj_for_z_score_window, end_date
         )
-    gamma = calculate_historical_gamma(pair_price_history_df, start_date, end_date)
-    spread_series = calculate_spread(
-        pair_price_history_df, gamma, start_date, end_date
-    )
+        z_scored_spread_series = calculate_rolling_zscore(
+            spread_series, start_date, end_date, z_score_window_in_days=z_score_window_in_calendar_days
+        )
+        # z_scored_spread_series = calculate_z_score_from_coint_period(spread_series, start_date, end_date)
+        trade_signals_df = create_trade_signals_from_spread_rolling_z_score(pair,z_scored_spread_series)
 
-    breakpoint()
+        pair_returns_df = create_returns_from_price_history(pair_price_history_df)
+
+        # TODO delete later. just for validation purposes
+        trade_visualization_df = pd.concat([trade_signals_df, pair_price_history_df, z_scored_spread_series], axis=1)
+        trade_visualization_df = trade_visualization_df[
+            (trade_visualization_df.index >= start_date) & 
+            (trade_visualization_df.index <= end_date)
+            ]
+        trade_visualization_df.to_csv('signals_and_z_score.csv')
+        # ------------------------------
+
+        signals_and_returns_df = trade_signals_df.merge(pair_returns_df, left_index=True, right_index=True)
+
+        ticker_one_trade_side_column_name = ticker_one + TRADE_SIDE_SUFFIX
+        ticker_two_trade_side_column_name = ticker_two + TRADE_SIDE_SUFFIX
+
+        signals_and_returns_df['ticker_one_returns'] = (
+            signals_and_returns_df[ticker_one_trade_side_column_name] * signals_and_returns_df[ticker_one]
+            )
+        signals_and_returns_df['ticker_two_returns'] = (
+            signals_and_returns_df[ticker_two_trade_side_column_name] * signals_and_returns_df[ticker_two]
+        )
+        # Assumes 50/50 dollar weight between positions
+        signals_and_returns_df['total_return'] = (
+            0.5 * signals_and_returns_df['ticker_one_returns'] +
+            0.5 * signals_and_returns_df['ticker_two_returns']
+        )
+
+        # Convert to decimal if in percent
+        signals_and_returns_df['total_return_decimal'] = signals_and_returns_df['total_return'] / 100
+
+        # Add 1 for cumulative growth
+        signals_and_returns_df['gross_return'] = 1 + signals_and_returns_df['total_return_decimal']
+
+        # Equity curve
+        signals_and_returns_df['cumulative'] = signals_and_returns_df['gross_return'].cumprod()
+
+        total_return_decimal = signals_and_returns_df['cumulative'].iloc[-1] - 1
+        total_return_pct = total_return_decimal * 100
+        print(total_return_pct)
+
+
+        breakpoint()
