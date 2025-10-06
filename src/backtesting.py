@@ -225,7 +225,7 @@ def calculate_trade_returns_for_tickers_in_pair(
 # always equal to 1 / portfolio_value. In practice, this would entail adjusting
 # the weight of open positions every time a position is closed and a return is realized.
 # Otherwise, the portfolio would not be fully invested and thus returns 
-# would not compound the way they are calculated below. 
+# would not compound the way they are calculated below
 def calculate_portfolio_compounded_return(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -249,9 +249,20 @@ def calculate_portfolio_compounded_return(
     return portfolio_returns_df[['portfolio_daily_return_pct', 'compounded_daily_return']]
 
 
-# def calculate_portfolio_metrics(
-#         portfolio_returns_df: pd.DataFrame,
-# ) -> Mapping[str,float]:
+def calculate_return_from_equal_dollar_weight_trades(returns: pd.Series) -> float:
+    return_from_each_trade = []
+    compounding_trade_return = 1
+    for i, ret in enumerate(returns):
+        if ret != 0:
+            compounding_trade_return = compounding_trade_return * (1 + ret)
+        is_return_non_zero = (compounding_trade_return != 1)
+        is_trade_exited = (ret == 0 and is_return_non_zero)
+        is_last_element = (i == len(returns) - 1 and is_return_non_zero)
+        if is_trade_exited or is_last_element:
+            print(compounding_trade_return -1)
+            return_from_each_trade.append(compounding_trade_return - 1)
+            compounding_trade_return = 1
+    return sum(return_from_each_trade)
     
 
 
