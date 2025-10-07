@@ -36,9 +36,7 @@ class TestCalculateReturnFromEqualDollarWeighTrades:
         )
 
     def test_toy_series(self) -> None:
-        returns = pd.Series(
-            [0.1, 0.1, 0.1, 0, 0, 0.12, -0.34, -0.24]
-        )
+        returns = pd.Series([0.1, 0.1, 0.1, 0, 0, 0.12, -0.34, -0.24])
         expected = -0.10720799999999964
         actual = calculate_return_from_equal_dollar_weight_trades(returns)
         assert expected == actual

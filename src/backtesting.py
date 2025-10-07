@@ -224,7 +224,7 @@ def calculate_trade_returns_for_tickers_in_pair(
 # This method of calculating portfolio returns assumes that positions are
 # always equal to 1 / portfolio_value. In practice, this would entail adjusting
 # the weight of open positions every time a position is closed and a return is realized.
-# Otherwise, the portfolio would not be fully invested and thus returns 
+# Otherwise, the portfolio would not be fully invested and thus returns
 # would not compound the way they are calculated below
 def calculate_portfolio_compounded_return(
     trade_returns_for_all_tickers_df: pd.DataFrame,
@@ -246,7 +246,9 @@ def calculate_portfolio_compounded_return(
         "gross_daily_return"
     ].cumprod()
     breakpoint()
-    return portfolio_returns_df[['portfolio_daily_return_pct', 'compounded_daily_return']]
+    return portfolio_returns_df[
+        ["portfolio_daily_return_pct", "compounded_daily_return"]
+    ]
 
 
 def calculate_return_from_equal_dollar_weight_trades(returns: pd.Series) -> float:
@@ -255,34 +257,35 @@ def calculate_return_from_equal_dollar_weight_trades(returns: pd.Series) -> floa
     for i, ret in enumerate(returns):
         if ret != 0:
             compounding_trade_return = compounding_trade_return * (1 + ret)
-        is_return_non_zero = (compounding_trade_return != 1)
-        is_trade_exited = (ret == 0 and is_return_non_zero)
-        is_last_element = (i == len(returns) - 1 and is_return_non_zero)
+        is_return_non_zero = compounding_trade_return != 1
+        is_trade_exited = ret == 0 and is_return_non_zero
+        is_last_element = i == len(returns) - 1 and is_return_non_zero
         if is_trade_exited or is_last_element:
             return_from_each_trade.append(compounding_trade_return - 1)
             compounding_trade_return = 1
     # print(return_from_each_trade)
     return sum(return_from_each_trade)
 
+
 # This calculates compounded returns for every trade on every ticker
-# and returns the sum. It assumes equal weight for each trade i.e., 
+# and returns the sum. It assumes equal weight for each trade i.e.,
 # each trade has the same dollar amount. This provides return on employed
 # capital opposed committed capital. Ref gatev & goetzmann.
 def calculate_return_on_employed_captial(
-        trade_returns_for_all_tickers_df: pd.DataFrame
+    trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> float:
     trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
     return_from_each_ticker = []
     for column_name in trade_returns_for_all_tickers_df.columns:
-        column_of_trades_on_single_ticker = trade_returns_for_all_tickers_df[column_name]
+        column_of_trades_on_single_ticker = trade_returns_for_all_tickers_df[
+            column_name
+        ]
         return_from_each_ticker.append(
             calculate_return_from_equal_dollar_weight_trades(
                 column_of_trades_on_single_ticker
             )
         )
     return sum(return_from_each_ticker) - 1
-
-    
 
 
 if __name__ == "__main__":
@@ -338,7 +341,7 @@ if __name__ == "__main__":
             [trade_returns_for_all_tickers_df, trade_returns_for_tickers_in_pair_df],
             axis=1,
         )
-    return_on_employed_capital = calculate_return_on_employed_captial(trade_returns_for_all_tickers_df)
+    return_on_employed_capital = calculate_return_on_employed_captial(
+        trade_returns_for_all_tickers_df
+    )
     print(return_on_employed_capital)
-    
-
