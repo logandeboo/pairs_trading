@@ -222,7 +222,7 @@ def calculate_trade_returns_for_tickers_in_pair(
 
 
 # This method of calculating portfolio returns assumes that positions are
-# always equal to 1 / portfolio_value. In practice, this would entail adjusting
+# always equal to num_pairs / portfolio_value. In practice, this would entail adjusting
 # the weight of open positions every time a position is closed and a return is realized.
 # Otherwise, the portfolio would not be fully invested and thus returns
 # would not compound the way they are calculated below
