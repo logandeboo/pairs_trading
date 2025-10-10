@@ -271,6 +271,21 @@ def calculate_return_from_equal_dollar_weight_trades(returns: pd.Series) -> floa
 # and returns the sum. It assumes equal weight for each trade i.e.,
 # each trade has the same dollar amount. This provides return on employed
 # capital opposed committed capital. Ref gatev & goetzmann.
+
+# There is a mistake in this approach. The mistake is that because it simply calculats
+# the return on each trade and then sums the returns, it treates the 
+# demoninator of the percent return calculation (ending investment / starting investment) as fixed.
+# For example, if there were two long trades open, each for $100, and each trade returned
+# $10, the calculation below would count that as a 20% return ($120/$100). This is
+# clearly incorrect because the total investment was $200, not $100. The real return
+# in this scenario is 10% i.e., ($220/$200).
+
+# I think the right approach is found here (https://quant.stackexchange.com/questions/7488/what-is-the-proper-way-to-calculate-returns-for-pair-trading/7491#7491)
+# and it follows that the correct way to compute daily returns on employed capital
+# for equal dollar weight trades is to cross-sectionally compute the sum 
+# of returns on open trades and divide that by the total number of dollars at risk i.e.,  
+# I think this reduces to (sum(daily returns over all active positions)) / number of positions).
+# Using the example above we would get (10% + 10%) / 2 = (.1 + .1) / 2 = .1 = 10%
 def calculate_return_on_employed_captial(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> float:
