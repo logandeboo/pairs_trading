@@ -21,6 +21,7 @@ from src.pair_selection import (
     create_returns_from_price_history,
 )
 
+
 TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
 
 
@@ -245,77 +246,52 @@ def calculate_portfolio_compounded_return(
     portfolio_returns_df["compounded_daily_return"] = portfolio_returns_df[
         "gross_daily_return"
     ].cumprod()
-    breakpoint()
     return portfolio_returns_df[
         ["portfolio_daily_return_pct", "compounded_daily_return"]
     ]
 
+def calculate_number_of_trades_per_day(curr: pd.DataFrame) -> pd.Series:
+    prev = curr.shift(1).fillna(0)
 
-def calculate_return_from_equal_dollar_weight_trades(returns: pd.Series) -> float:
-    return_from_each_trade = []
-    compounding_trade_return = 1
-    for i, ret in enumerate(returns):
-        if ret != 0:
-            compounding_trade_return = compounding_trade_return * (1 + ret)
-        is_return_non_zero = compounding_trade_return != 1
-        is_trade_exited = ret == 0 and is_return_non_zero
-        is_last_element = i == len(returns) - 1 and is_return_non_zero
-        if is_trade_exited or is_last_element:
-            return_from_each_trade.append(compounding_trade_return - 1)
-            compounding_trade_return = 1
-    # print(return_from_each_trade)
-    return sum(return_from_each_trade)
+    buys = (curr != 0) & (prev == 0)
+    sells = (prev != 0) & (curr == 0)
+    # Sells are shifted up on day so t cost can be subtracted 
+    # from the last day the position was active
+    transaction_count_df = buys.sum(axis=1) + sells.shift(-1).sum(axis=1)
+    num_trades_closed_on_last_day_of_period = (curr.iloc[-1] != 0).sum()
+    transaction_count_df.iloc[-1] += num_trades_closed_on_last_day_of_period
+    return transaction_count_df
 
 
-# This calculates compounded returns for every trade on every ticker
-# and returns the sum. It assumes equal weight for each trade i.e.,
-# each trade has the same dollar amount. This provides return on employed
-# capital opposed committed capital. Ref gatev & goetzmann.
-
-# There is a mistake in this approach. The mistake is that because it simply calculats
-# the return on each trade and then sums the returns, it treates the
-# demoninator of the percent return calculation (ending investment / starting investment) as fixed.
-# For example, if there were two long trades open, each for $100, and each trade returned
-# $10, the calculation below would count that as a 20% return ($120/$100). This is
-# clearly incorrect because the total investment was $200, not $100. The real return
-# in this scenario is 10% i.e., ($220/$200).
-
-# I think the right approach is found here (https://quant.stackexchange.com/questions/7488/what-is-the-proper-way-to-calculate-returns-for-pair-trading/7491#7491)
-# and it follows that the correct way to compute daily returns on employed capital
-# for equal dollar weight trades is to cross-sectionally compute the sum
-# of returns on open trades and divide that by the total number of dollars at risk i.e.,
-# I think this reduces to (sum(daily returns over all active positions)) / number of positions).
-# Using the example above we would get (10% + 10%) / 2 = (.1 + .1) / 2 = .1 = 10%
+# Calculates total portfolio return on employed capital for equal dollar weight trades.
+# Σ(active trade returns) / number of active trades
+# For each day, the portfolio return is calculated as the sum of returns on open trades divided
+# by the number of open positions. E.g., on day t, if there are two open trades with returns of 
+# .05% and 1.2%, the portfolio return is (0.0005 + 0.012) / 2
 def calculate_return_on_employed_captial(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> float:
-    trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
     trade_returns_for_all_tickers_df['portfolio_daily_return'] = trade_returns_for_all_tickers_df.sum(axis=1) / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
-    trade_returns_for_all_tickers_df['portfoliio_gross_return'] = trade_returns_for_all_tickers_df['portfolio_daily_return'] + 1
-    trade_returns_for_all_tickers_df['portfoliio_gross_return'].cumprod()
-    print(trade_returns_for_all_tickers_df['portfoliio_gross_return'].iloc[-1] - 1)
+    trade_returns_for_all_tickers_df['portfolio_gross_return'] = trade_returns_for_all_tickers_df['portfolio_daily_return'] + 1
+    return trade_returns_for_all_tickers_df['portfolio_gross_return'].cumprod().iloc[-1] - 1
     
-    breakpoint()
+# def calculate_portfolio_performance(
+#     trade_returns_for_all_tickers_df: pd.DataFrame,
+# ) -> Mapping[str, float]:
+#     performance = {}
+#     trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
+#     performancecalculate_return_on_employed_captial(trade_returns_for_all_tickers_df)
 
+    
+    
+    
 
-
-    # return_from_each_ticker = []
-    # for column_name in trade_returns_for_all_tickers_df.columns:
-    #     column_of_trades_on_single_ticker = trade_returns_for_all_tickers_df[
-    #         column_name
-    #     ]
-    #     return_from_each_ticker.append(
-    #         calculate_return_from_equal_dollar_weight_trades(
-    #             column_of_trades_on_single_ticker
-    #         )
-    #     )
-    # return sum(return_from_each_ticker) - 1
 
 
 if __name__ == "__main__":
     # NOTE dates are the one year period following the two year period
     # that was screened for cointegration
-    z_score_window_in_calendar_days = 40
+    z_score_window_in_calendar_days = 15
     num_pairs = 2
     start_date = datetime(2024, 1, 1)
     # TODO the +10 is a hack to account for calendar vs trading days. Fix this
