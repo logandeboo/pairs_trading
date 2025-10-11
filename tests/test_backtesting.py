@@ -1,50 +1,21 @@
-from src.backtesting import calculate_return_from_equal_dollar_weight_trades
+from src.backtesting import (
+    calculate_number_of_trades_per_day
+    )
 import pandas as pd
 import numpy as np
 
+class TestCalculateNumberOfTradesPerDay:
 
-class TestCalculateReturnFromEqualDollarWeighTrades:
-
-    def test_empty_series(self) -> None:
-        expected = 0
-        returns = pd.Series()
-        actual = calculate_return_from_equal_dollar_weight_trades(returns)
-        assert expected == actual
-
-    def test_series_size_one(self) -> None:
-        expected = 0.56
-        returns = pd.Series([expected])
-        actual = calculate_return_from_equal_dollar_weight_trades(returns)
-        assert expected == actual
-
-    def test_leading_zero(self) -> None:
-        returns = [0.1, 0.1]
-        returns_no_leading_zero = pd.Series(returns)
-        returns_with_leading_zero = pd.Series([0] + returns)
-        assert calculate_return_from_equal_dollar_weight_trades(
-            returns_no_leading_zero
-        ) == calculate_return_from_equal_dollar_weight_trades(returns_with_leading_zero)
-
-    def test_trailing_zero(self) -> None:
-        returns = [0.2, 0.2]
-        returns_no_trailing_zero = pd.Series(returns)
-        returns_with_trailing_zero = pd.Series(returns + [0])
-        assert calculate_return_from_equal_dollar_weight_trades(
-            returns_no_trailing_zero
-        ) == calculate_return_from_equal_dollar_weight_trades(
-            returns_with_trailing_zero
+    def test_calculate_num_trades_per_day_toy_data(self) -> None:
+        input_df = pd.DataFrame(
+            {
+                'A' : [0, 0, 1, 1, 1, 0, 0, 1, 1],
+                'B' : [0, 1, 0, 1, 0, 1, 0, 0, 1],
+                'C' : [0, 1, 1, 1, 0, 1, 1, 1, 0],
+            }
         )
-
-    def test_toy_series(self) -> None:
-        returns = pd.Series([0.1, 0.1, 0.1, 0, 0, 0.12, -0.34, -0.24])
-        expected = -0.10720799999999964
-        actual = calculate_return_from_equal_dollar_weight_trades(returns)
-        assert expected == actual
-
-    def test_sample_data(self) -> None:
-        expected = 0.12098087375052535
-        returns = pd.read_csv(
-            "tests/test_data/KVUE_trade_returns.csv", index_col=0, parse_dates=True
-        )["KVUE"]
-        actual = calculate_return_from_equal_dollar_weight_trades(returns)
-        assert np.isclose(expected, actual)
+        actual = calculate_number_of_trades_per_day(input_df)
+        expected = pd.Series(
+            [0, 3, 1, 3, 1, 3, 0, 2, 3]
+        )
+        pd.testing.assert_series_equal(actual.astype('int64'), expected)
