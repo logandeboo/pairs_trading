@@ -250,12 +250,12 @@ def calculate_portfolio_compounded_return(
         ["portfolio_daily_return_pct", "compounded_daily_return"]
     ]
 
+
 def calculate_number_of_trades_per_day(curr: pd.DataFrame) -> pd.Series:
     prev = curr.shift(1).fillna(0)
-
     buys = (curr != 0) & (prev == 0)
     sells = (prev != 0) & (curr == 0)
-    # Sells are shifted up on day so t cost can be subtracted 
+    # Sells are shifted up on day so t cost can be subtracted
     # from the last day the position was active
     transaction_count_df = buys.sum(axis=1) + sells.shift(-1).sum(axis=1)
     num_trades_closed_on_last_day_of_period = (curr.iloc[-1] != 0).sum()
@@ -266,26 +266,30 @@ def calculate_number_of_trades_per_day(curr: pd.DataFrame) -> pd.Series:
 # Calculates total portfolio return on employed capital for equal dollar weight trades.
 # Σ(active trade returns) / number of active trades
 # For each day, the portfolio return is calculated as the sum of returns on open trades divided
-# by the number of open positions. E.g., on day t, if there are two open trades with returns of 
+# by the number of open positions. E.g., on day t, if there are two open trades with returns of
 # .05% and 1.2%, the portfolio return is (0.0005 + 0.012) / 2
 def calculate_return_on_employed_captial(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> float:
-    trade_returns_for_all_tickers_df['portfolio_daily_return'] = trade_returns_for_all_tickers_df.sum(axis=1) / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
-    trade_returns_for_all_tickers_df['portfolio_gross_return'] = trade_returns_for_all_tickers_df['portfolio_daily_return'] + 1
-    return trade_returns_for_all_tickers_df['portfolio_gross_return'].cumprod().iloc[-1] - 1
-    
+    trade_returns_for_all_tickers_df["portfolio_daily_return"] = (
+        trade_returns_for_all_tickers_df.sum(axis=1)
+        / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
+    )
+    trade_returns_for_all_tickers_df["portfolio_gross_return"] = (
+        trade_returns_for_all_tickers_df["portfolio_daily_return"] + 1
+    )
+    return (
+        trade_returns_for_all_tickers_df["portfolio_gross_return"].cumprod().iloc[-1]
+        - 1
+    )
+
+
 # def calculate_portfolio_performance(
 #     trade_returns_for_all_tickers_df: pd.DataFrame,
 # ) -> Mapping[str, float]:
 #     performance = {}
 #     trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
 #     performancecalculate_return_on_employed_captial(trade_returns_for_all_tickers_df)
-
-    
-    
-    
-
 
 
 if __name__ == "__main__":
