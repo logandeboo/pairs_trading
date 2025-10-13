@@ -1,6 +1,5 @@
 from src.backtesting import calculate_number_of_trades_per_day
 import pandas as pd
-import numpy as np
 
 
 class TestCalculateNumberOfTradesPerDay:
@@ -32,3 +31,11 @@ class TestCalculateNumberOfTradesPerDay:
         pd.testing.assert_series_equal(
             actual_series.astype("int64"), expected_series, check_names=False
         )
+
+
+# TODO finish testing this
+class TestCalculateReturnOnEmployedCaptial:
+
+    def test_calculate_return_on_employed_capital_single_ticker(self) -> None:
+
+        input_df = pd.DataFrame({"A": []})

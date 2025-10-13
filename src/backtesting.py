@@ -23,10 +23,12 @@ from src.pair_selection import (
 
 
 TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
+ONE_WAY_TRANSACTION_COST_IN_BASIS_POINTS = 10
+PORTFOLIO_RETURN_KEY = "portfolio_return_pct"
 
 
-# TODO consider triggering condition as the spread converges *back*
-# within range instead of upon exit
+# TODO consider triggering condition as the spread converges back
+# within trade threshold instead of upon exit
 def is_exit_condition_met(
     spread_z_score_series: pd.Series,
     t_minus_one_date: datetime,
@@ -98,28 +100,25 @@ def assign_weights_from_prev_date_to_cur_date(
     return weight_at_date_df
 
 
+# TODO clean this up
 def create_trade_signals_from_spread_rolling_z_score(
     ticker_pair: tuple[str, str],
     spread_z_score_series: pd.Series,
 ) -> pd.DataFrame:
     ticker_one = ticker_pair[0]
     ticker_two = ticker_pair[1]
-    ticker_one_weight_column_name = ticker_one + TRADE_SIDE_COLUMN_NAME_SUFFIX
-    ticker_two_weight_column_name = ticker_two + TRADE_SIDE_COLUMN_NAME_SUFFIX
+    ticker_one_trade_side_column_name = ticker_one + TRADE_SIDE_COLUMN_NAME_SUFFIX
+    ticker_two_trade_side_column_name = ticker_two + TRADE_SIDE_COLUMN_NAME_SUFFIX
 
     weight_at_date_df = pd.DataFrame(
         index=spread_z_score_series.index,
-        columns=[ticker_one_weight_column_name, ticker_two_weight_column_name],
+        columns=[ticker_one_trade_side_column_name, ticker_two_trade_side_column_name],
     )
     entrance_threshold = 2
     exit_threshold = 0
 
     is_invested = False
     for i, (cur_date, z_score) in enumerate(spread_z_score_series.items()):
-        # TODO there is a better way than to ignore the first two days.
-        # probably just extend the spread_z_score_series
-        if i < 2:
-            continue
         t_minus_one_date = spread_z_score_series.index[i - 1]
         t_minus_two_date = spread_z_score_series.index[i - 2]
         z_score_at_t_minus_one_date = spread_z_score_series.loc[t_minus_one_date]
@@ -128,8 +127,8 @@ def create_trade_signals_from_spread_rolling_z_score(
             weight_at_date_df = enter_position_at_current_date(
                 weight_at_date_df,
                 cur_date,
-                ticker_one_weight_column_name,
-                ticker_two_weight_column_name,
+                ticker_one_trade_side_column_name,
+                ticker_two_trade_side_column_name,
                 is_long_ticker_one=True,
             )
             is_invested = True
@@ -140,8 +139,8 @@ def create_trade_signals_from_spread_rolling_z_score(
             weight_at_date_df = set_weights_to_zero_at_current_date(
                 weight_at_date_df,
                 cur_date,
-                ticker_one_weight_column_name,
-                ticker_two_weight_column_name,
+                ticker_one_trade_side_column_name,
+                ticker_two_trade_side_column_name,
             )
             is_invested = False
 
@@ -149,8 +148,8 @@ def create_trade_signals_from_spread_rolling_z_score(
             weight_at_date_df = enter_position_at_current_date(
                 weight_at_date_df,
                 cur_date,
-                ticker_one_weight_column_name,
-                ticker_two_weight_column_name,
+                ticker_one_trade_side_column_name,
+                ticker_two_trade_side_column_name,
                 is_long_ticker_one=False,
             )
             is_invested = True
@@ -177,7 +176,7 @@ def calculate_rolling_zscore(
     ]
 
 
-def calculate_z_score_from_coint_period(
+def calculate_z_score_from_cointegrated_period(
     spread: pd.Series, start_date: datetime, end_date: datetime
 ) -> pd.Series:
     mean = spread.mean()
@@ -224,9 +223,9 @@ def calculate_trade_returns_for_tickers_in_pair(
 
 # This method of calculating portfolio returns assumes that positions are
 # always equal to num_pairs / portfolio_value. In practice, this would entail adjusting
-# the weight of open positions every time a position is closed and a return is realized.
+# the weight of open positions each time a position is closed.
 # Otherwise, the portfolio would not be fully invested and thus returns
-# would not compound the way they are calculated below
+# would not compound the way they are calculated below.
 def calculate_portfolio_compounded_return(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -251,16 +250,27 @@ def calculate_portfolio_compounded_return(
     ]
 
 
-def calculate_number_of_trades_per_day(curr: pd.DataFrame) -> pd.Series:
-    prev = curr.shift(1).fillna(0)
-    buys = (curr != 0) & (prev == 0)
-    sells = (prev != 0) & (curr == 0)
+def calculate_number_of_trades_per_day(
+    trade_returns_for_all_tickers_df: pd.DataFrame,
+) -> pd.DataFrame:
+    trade_returns_t_minus_one_for_all_tickers_df = (
+        trade_returns_for_all_tickers_df.shift(1).fillna(0)
+    )
+    buys = (trade_returns_for_all_tickers_df != 0) & (
+        trade_returns_t_minus_one_for_all_tickers_df == 0
+    )
+    sells = (trade_returns_t_minus_one_for_all_tickers_df != 0) & (
+        trade_returns_for_all_tickers_df == 0
+    )
     # Sells are shifted up on day so t cost can be subtracted
     # from the last day the position was active
-    transaction_count_df = buys.sum(axis=1) + sells.shift(-1).sum(axis=1)
-    num_trades_closed_on_last_day_of_period = (curr.iloc[-1] != 0).sum()
-    transaction_count_df.iloc[-1] += num_trades_closed_on_last_day_of_period
-    return transaction_count_df
+    transaction_count_series = buys.sum(axis=1) + sells.shift(-1).sum(axis=1)
+    # Assumes all open trades are closed on last day of trading period
+    num_trades_closed_on_last_day_of_period = (
+        trade_returns_for_all_tickers_df.iloc[-1] != 0
+    ).sum()
+    transaction_count_series.iloc[-1] += num_trades_closed_on_last_day_of_period
+    return transaction_count_series.to_frame(name="transaction_count")
 
 
 # Calculates total portfolio return on employed capital for equal dollar weight trades.
@@ -268,28 +278,54 @@ def calculate_number_of_trades_per_day(curr: pd.DataFrame) -> pd.Series:
 # For each day, the portfolio return is calculated as the sum of returns on open trades divided
 # by the number of open positions. E.g., on day t, if there are two open trades with returns of
 # .05% and 1.2%, the portfolio return is (0.0005 + 0.012) / 2
-def calculate_return_on_employed_captial(
+def calculate_daily_return_on_employed_capital(
+    trade_returns_for_all_tickers_df: pd.DataFrame,
+) -> pd.DataFrame:
+    daily_portfolio_return_df = pd.DataFrame()
+    daily_transaction_count_df = calculate_number_of_trades_per_day(
+        trade_returns_for_all_tickers_df
+    )
+    daily_portfolio_return_df["daily_return"] = trade_returns_for_all_tickers_df.sum(
+        axis=1
+    ) / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
+    daily_portfolio_return_and_transaction_count_df = daily_portfolio_return_df.merge(
+        daily_transaction_count_df,
+        left_index=True,
+        right_index=True,
+    )
+    daily_portfolio_return_and_transaction_count_df["transaction_cost"] = (
+        daily_portfolio_return_and_transaction_count_df["transaction_count"]
+        * (ONE_WAY_TRANSACTION_COST_IN_BASIS_POINTS / 10_000)
+    )
+    daily_portfolio_return_and_transaction_count_df["daily_return_after_t_cost"] = (
+        daily_portfolio_return_df["daily_return"]
+        - daily_portfolio_return_and_transaction_count_df["transaction_cost"]
+    )
+    return daily_portfolio_return_and_transaction_count_df[['daily_return_after_t_cost']]
+
+
+def calculate_total_portfolio_return(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> float:
-    trade_returns_for_all_tickers_df["portfolio_daily_return"] = (
-        trade_returns_for_all_tickers_df.sum(axis=1)
-        / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
+    daily_portfolio_return_df = calculate_daily_return_on_employed_capital(
+        trade_returns_for_all_tickers_df
     )
-    trade_returns_for_all_tickers_df["portfolio_gross_return"] = (
-        trade_returns_for_all_tickers_df["portfolio_daily_return"] + 1
+    daily_portfolio_return_df["gross_daily_return"] = (
+        daily_portfolio_return_df["daily_return"] + 1
     )
-    return (
-        trade_returns_for_all_tickers_df["portfolio_gross_return"].cumprod().iloc[-1]
-        - 1
-    )
+    return daily_portfolio_return_df["gross_daily_return"].cumprod().iloc[-1] - 1
 
 
-# def calculate_portfolio_performance(
-#     trade_returns_for_all_tickers_df: pd.DataFrame,
-# ) -> Mapping[str, float]:
-#     performance = {}
-#     trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
-#     performancecalculate_return_on_employed_captial(trade_returns_for_all_tickers_df)
+# TODO convert returns to decimal higher up stream
+# to prevent repeated conversions
+def calculate_portfolio_performance(
+    trade_returns_for_all_tickers_df: pd.DataFrame,
+) -> Mapping[str, float]:
+    performance = {}
+    trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
+    daily_portfolio_return_df = calculate_daily_return_on_employed_capital(
+        trade_returns_for_all_tickers_df
+    )
 
 
 if __name__ == "__main__":
@@ -345,7 +381,7 @@ if __name__ == "__main__":
             [trade_returns_for_all_tickers_df, trade_returns_for_tickers_in_pair_df],
             axis=1,
         )
-    return_on_employed_capital = calculate_return_on_employed_captial(
+    return_on_employed_capital = calculate_portfolio_performance(
         trade_returns_for_all_tickers_df
     )
     print(return_on_employed_capital)
