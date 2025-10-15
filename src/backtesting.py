@@ -6,13 +6,14 @@ import os
 import statsmodels.api as sm
 from collections.abc import Mapping
 from pathlib import Path
-from itertools import combinations
 import ast
 import sys
+from typing import NamedTuple, Mapping
 
 # TODO this is a temporary workaround
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# TODO add file to hold common funcs
+
+# TODO add new file to hold common funcs
 from src.pair_selection import (
     read_stock_price_history_into_dict,
     calculate_spread,
@@ -22,13 +23,35 @@ from src.pair_selection import (
 )
 
 
-TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
-ONE_WAY_TRANSACTION_COST_IN_BASIS_POINTS = 10
-PORTFOLIO_RETURN_KEY = "portfolio_return_pct"
+# TODO implement calculations for commented out class attributes
+class PortfolioPerformanceResult(NamedTuple):
+    annualized_return: float
+    # annualized_volatility: float
+    # sharpe_ratio: float
+    # hit_rate: float
+    # max_drawdown: float
+    # max_drawdown_duration_in_trading_days: float
+    # skewness: float
+    performance_period_start: datetime
+    performance_period_end: datetime
+
+
+_TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
+_ONE_WAY_T_COST_IN_BASIS_POINTS = 10
+_PORTFOLIO_DAILY_RETURN_COLUMN_NAME = "portfolio_daily_return"
+_PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = (
+    "portfolio_gross_daily_return_after_t_cost"
+)
+_PORTFOLIO_DAILY_T_COST_COLUMN_NAME = "portfolio_daily_t_cost"
+_DAILY_TRANSACTION_COUNT_COLUMN_NAME = "transaction_count"
+_PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = "portfolio_daily_return_after_t_cost"
+_EXIT_THRESHOLD_ABSOLUTE_TOLERANCE = 0.1
+_ANNUALIZATION_FACTOR_IN_TRADING_DAYS = 252
+
 
 
 # TODO consider triggering condition as the spread converges back
-# within trade threshold instead of upon exit
+# within trade threshold instead of upon exit.
 def is_exit_condition_met(
     spread_z_score_series: pd.Series,
     t_minus_one_date: datetime,
@@ -49,7 +72,11 @@ def is_exit_condition_met(
         and z_score_at_t_minus_two_date > exit_threshold
     ):
         return True
-    if np.isclose(z_score_at_t_minus_one_date, exit_threshold, atol=0.1):
+    if np.isclose(
+        z_score_at_t_minus_one_date,
+        exit_threshold,
+        atol=_EXIT_THRESHOLD_ABSOLUTE_TOLERANCE,
+    ):
         return True
     return False
 
@@ -107,8 +134,8 @@ def create_trade_signals_from_spread_rolling_z_score(
 ) -> pd.DataFrame:
     ticker_one = ticker_pair[0]
     ticker_two = ticker_pair[1]
-    ticker_one_trade_side_column_name = ticker_one + TRADE_SIDE_COLUMN_NAME_SUFFIX
-    ticker_two_trade_side_column_name = ticker_two + TRADE_SIDE_COLUMN_NAME_SUFFIX
+    ticker_one_trade_side_column_name = ticker_one + _TRADE_SIDE_COLUMN_NAME_SUFFIX
+    ticker_two_trade_side_column_name = ticker_two + _TRADE_SIDE_COLUMN_NAME_SUFFIX
 
     weight_at_date_df = pd.DataFrame(
         index=spread_z_score_series.index,
@@ -205,8 +232,8 @@ def calculate_trade_returns_for_tickers_in_pair(
     price_returns_df: pd.DataFrame,
 ) -> pd.DataFrame:
     trade_returns_for_tickers_df = pd.DataFrame()
-    ticker_one_trade_side_column_name = ticker_one + TRADE_SIDE_COLUMN_NAME_SUFFIX
-    ticker_two_trade_side_column_name = ticker_two + TRADE_SIDE_COLUMN_NAME_SUFFIX
+    ticker_one_trade_side_column_name = ticker_one + _TRADE_SIDE_COLUMN_NAME_SUFFIX
+    ticker_two_trade_side_column_name = ticker_two + _TRADE_SIDE_COLUMN_NAME_SUFFIX
     signals_and_returns_df = trade_signals_df.merge(
         price_returns_df, left_index=True, right_index=True
     )
@@ -219,35 +246,6 @@ def calculate_trade_returns_for_tickers_in_pair(
         * signals_and_returns_df[ticker_two]
     )
     return trade_returns_for_tickers_df
-
-
-# This method of calculating portfolio returns assumes that positions are
-# always equal to num_pairs / portfolio_value. In practice, this would entail adjusting
-# the weight of open positions each time a position is closed.
-# Otherwise, the portfolio would not be fully invested and thus returns
-# would not compound the way they are calculated below.
-def calculate_portfolio_compounded_return(
-    trade_returns_for_all_tickers_df: pd.DataFrame,
-) -> pd.DataFrame:
-    portfolio_returns_df = pd.DataFrame()
-    trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / len(
-        trade_returns_for_all_tickers_df.columns
-    )
-    portfolio_returns_df["portfolio_daily_return_pct"] = (
-        trade_returns_for_all_tickers_df.sum(axis=1)
-    )
-    portfolio_returns_df["portfolio_daily_return_decimal"] = (
-        portfolio_returns_df["portfolio_daily_return_pct"] / 100
-    )
-    portfolio_returns_df["gross_daily_return"] = (
-        1 + portfolio_returns_df["portfolio_daily_return_decimal"]
-    )
-    portfolio_returns_df["compounded_daily_return"] = portfolio_returns_df[
-        "gross_daily_return"
-    ].cumprod()
-    return portfolio_returns_df[
-        ["portfolio_daily_return_pct", "compounded_daily_return"]
-    ]
 
 
 def calculate_number_of_trades_per_day(
@@ -273,7 +271,7 @@ def calculate_number_of_trades_per_day(
     return transaction_count_series.to_frame(name="transaction_count")
 
 
-# Calculates total portfolio return on employed capital for equal dollar weight trades.
+# Calculates total portfolio return on employed capital assuming equal dollar weight trades.
 # Σ(active trade returns) / number of active trades
 # For each day, the portfolio return is calculated as the sum of returns on open trades divided
 # by the number of open positions. E.g., on day t, if there are two open trades with returns of
@@ -285,47 +283,85 @@ def calculate_daily_return_on_employed_capital(
     daily_transaction_count_df = calculate_number_of_trades_per_day(
         trade_returns_for_all_tickers_df
     )
-    daily_portfolio_return_df["daily_return"] = trade_returns_for_all_tickers_df.sum(
-        axis=1
-    ) / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
+    daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_COLUMN_NAME] = (
+        trade_returns_for_all_tickers_df.sum(axis=1)
+        / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
+    )
     daily_portfolio_return_and_transaction_count_df = daily_portfolio_return_df.merge(
         daily_transaction_count_df,
         left_index=True,
         right_index=True,
     )
-    daily_portfolio_return_and_transaction_count_df["transaction_cost"] = (
-        daily_portfolio_return_and_transaction_count_df["transaction_count"]
-        * (ONE_WAY_TRANSACTION_COST_IN_BASIS_POINTS / 10_000)
+    daily_portfolio_return_and_transaction_count_df[
+        _PORTFOLIO_DAILY_T_COST_COLUMN_NAME
+    ] = daily_portfolio_return_and_transaction_count_df[
+        _DAILY_TRANSACTION_COUNT_COLUMN_NAME
+    ] * (
+        _ONE_WAY_T_COST_IN_BASIS_POINTS / 10_000
     )
-    daily_portfolio_return_and_transaction_count_df["daily_return_after_t_cost"] = (
-        daily_portfolio_return_df["daily_return"]
-        - daily_portfolio_return_and_transaction_count_df["transaction_cost"]
+    daily_portfolio_return_and_transaction_count_df[
+        _PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
+    ] = (
+        daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_COLUMN_NAME]
+        - daily_portfolio_return_and_transaction_count_df[
+            _PORTFOLIO_DAILY_T_COST_COLUMN_NAME
+        ]
     )
-    return daily_portfolio_return_and_transaction_count_df[['daily_return_after_t_cost']]
+    return daily_portfolio_return_and_transaction_count_df[
+        [_PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME]
+    ]
 
 
-def calculate_total_portfolio_return(
-    trade_returns_for_all_tickers_df: pd.DataFrame,
+def calculate_annualized_portfolio_return(
+    daily_portfolio_return_df: pd.DataFrame,
 ) -> float:
-    daily_portfolio_return_df = calculate_daily_return_on_employed_capital(
-        trade_returns_for_all_tickers_df
+    daily_portfolio_return_df[_PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME] = (
+        daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME] + 1
     )
-    daily_portfolio_return_df["gross_daily_return"] = (
-        daily_portfolio_return_df["daily_return"] + 1
+    total_gross_return = daily_portfolio_return_df[
+        _PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
+    ].prod()
+    num_days_in_performance_period = len(daily_portfolio_return_df)
+    annualized_gross_return = total_gross_return ** (
+        _ANNUALIZATION_FACTOR_IN_TRADING_DAYS / num_days_in_performance_period
     )
-    return daily_portfolio_return_df["gross_daily_return"].cumprod().iloc[-1] - 1
+    annualized_return = annualized_gross_return - 1
+    return annualized_return
+
+
+def get_portfolio_performance_period_start(
+    daily_portfolio_returns_df: pd.DataFrame,
+) -> datetime:
+    return daily_portfolio_returns_df.index[0]
+
+
+def get_portfolio_performance_period_end(
+    daily_portfolio_returns_df: pd.DataFrame,
+) -> datetime:
+    return daily_portfolio_returns_df.index[-1]
 
 
 # TODO convert returns to decimal higher up stream
 # to prevent repeated conversions
-def calculate_portfolio_performance(
+def get_portfolio_performance_result(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> Mapping[str, float]:
-    performance = {}
     trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
     daily_portfolio_return_df = calculate_daily_return_on_employed_capital(
         trade_returns_for_all_tickers_df
     )
+    portfolio_performance_result = PortfolioPerformanceResult(
+        annualized_return=calculate_annualized_portfolio_return(
+            daily_portfolio_return_df.copy()
+        ),
+        performance_period_start=get_portfolio_performance_period_start(
+            daily_portfolio_return_df
+        ),
+        performance_period_end=get_portfolio_performance_period_end(
+            daily_portfolio_return_df
+        ),
+    )
+    return portfolio_performance_result
 
 
 if __name__ == "__main__":
@@ -381,7 +417,7 @@ if __name__ == "__main__":
             [trade_returns_for_all_tickers_df, trade_returns_for_tickers_in_pair_df],
             axis=1,
         )
-    return_on_employed_capital = calculate_portfolio_performance(
+    portfolio_performance_result = get_portfolio_performance_result(
         trade_returns_for_all_tickers_df
     )
-    print(return_on_employed_capital)
+    print(portfolio_performance_result)
