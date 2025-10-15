@@ -26,8 +26,8 @@ from src.pair_selection import (
 # TODO implement calculations for commented out class attributes
 class PortfolioPerformanceResult(NamedTuple):
     annualized_return: float
-    # annualized_volatility: float
-    # sharpe_ratio: float
+    annualized_volatility: float
+    annualized_sharpe_ratio: float
     # hit_rate: float
     # max_drawdown: float
     # max_drawdown_duration_in_trading_days: float
@@ -47,6 +47,7 @@ _DAILY_TRANSACTION_COUNT_COLUMN_NAME = "transaction_count"
 _PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = "portfolio_daily_return_after_t_cost"
 _EXIT_THRESHOLD_ABSOLUTE_TOLERANCE = 0.1
 _ANNUALIZATION_FACTOR_IN_TRADING_DAYS = 252
+_RISK_FREE_RATE_IN_DECIMAL = 0.04
 
 
 
@@ -340,6 +341,22 @@ def get_portfolio_performance_period_end(
 ) -> datetime:
     return daily_portfolio_returns_df.index[-1]
 
+    
+def calculate_annualized_portfolio_volatility(
+    daily_portfolio_return_df: pd.DataFrame,
+) -> float:
+    daily_volatility = daily_portfolio_return_df[
+        _PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
+    ].std()
+    return daily_volatility * np.sqrt(_ANNUALIZATION_FACTOR_IN_TRADING_DAYS)
+
+
+def calculate_annualized_sharpe_ratio(
+    annualized_return: float,
+    annualized_volatility: float,
+) -> float:
+    excess_return = annualized_return - _RISK_FREE_RATE_IN_DECIMAL    
+    return excess_return / annualized_volatility
 
 # TODO convert returns to decimal higher up stream
 # to prevent repeated conversions
@@ -350,10 +367,17 @@ def get_portfolio_performance_result(
     daily_portfolio_return_df = calculate_daily_return_on_employed_capital(
         trade_returns_for_all_tickers_df
     )
-    portfolio_performance_result = PortfolioPerformanceResult(
-        annualized_return=calculate_annualized_portfolio_return(
+    annualized_return = calculate_annualized_portfolio_return(
             daily_portfolio_return_df.copy()
-        ),
+        )
+    annualized_volatility = calculate_annualized_portfolio_volatility(
+            daily_portfolio_return_df.copy()
+        )
+    breakpoint()
+    portfolio_performance_result = PortfolioPerformanceResult(
+        annualized_return=annualized_return,
+        annualized_volatility=annualized_volatility,
+        annualized_sharpe_ratio=calculate_annualized_sharpe_ratio(annualized_return, annualized_volatility),
         performance_period_start=get_portfolio_performance_period_start(
             daily_portfolio_return_df
         ),
