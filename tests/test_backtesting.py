@@ -1,8 +1,9 @@
 import pandas as pd
 from src.backtesting import (
     calculate_number_of_trades_per_day,
-    calculate_daily_return_on_employed_capital,
+    calculate_daily_return_on_employed_capital_after_t_costs,
     calculate_daily_portfolio_return_before_t_costs,
+    DAILY_TRANSACTION_COUNT_COLUMN_NAME,
     PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME,
 )
 
@@ -10,35 +11,33 @@ from src.backtesting import (
 class TestCalculateNumberOfTradesPerDay:
 
     def test_calculate_num_trades_per_day_toy_data(self) -> None:
-        input_df = pd.DataFrame(
+        toy_input_df = pd.DataFrame(
             {
                 "A": [0, 0, 1, 1, 1, 0, 0, 1, 1],
                 "B": [0, 1, 0, 1, 0, 1, 0, 0, 1],
                 "C": [0, 1, 1, 1, 0, 1, 1, 1, 0],
             }
         )
-        actual_series = calculate_number_of_trades_per_day(input_df)
-        expected_series = pd.Series([0, 3, 1, 3, 1, 3, 0, 2, 3])
-        pd.testing.assert_series_equal(actual_series.astype("int64"), expected_series)
+        actual_df = calculate_number_of_trades_per_day(toy_input_df)
+        expected_df = pd.DataFrame({DAILY_TRANSACTION_COUNT_COLUMN_NAME:[0, 3, 1, 3, 1, 3, 0, 2, 3]})
+        pd.testing.assert_frame_equal(actual_df, expected_df)
 
     def test_calculate_num_trades_per_day_sample_data(self) -> None:
-        input_df = pd.read_csv(
+        trade_returns_for_tickers_df = pd.read_csv(
             "tests/test_data/trade_returns_for_tickers.csv",
             index_col=0,
             parse_dates=True,
         )
-        actual_series = calculate_number_of_trades_per_day(input_df)
-        expected_series = pd.read_csv(
+        actual_df = calculate_number_of_trades_per_day(trade_returns_for_tickers_df)
+        expected_df = pd.read_csv(
             "tests/test_data/num_trades_per_day_expected.csv",
             index_col=0,
             parse_dates=True,
-        ).squeeze("columns")
-        pd.testing.assert_series_equal(
-            actual_series.astype("int64"), expected_series, check_names=False
+        )
+        pd.testing.assert_frame_equal(
+            actual_df, expected_df
         )
 
-
-# TODO finish testing this
 class TestCalculateReturnOnEmployedCaptial:
 
     def test_calculate_daily_portfolio_return_before_t_costs(self) -> None:
@@ -47,19 +46,19 @@ class TestCalculateReturnOnEmployedCaptial:
             index_col=0,
             parse_dates=True,
         )
-        trade_returns_for_all_tickers_df = pd.read_csv(
+        trade_returns_for_tickers_df = pd.read_csv(
             "tests/test_data/trade_returns_for_tickers_2.csv",
             index_col=0,
             parse_dates=True,
         )
-        actual_df = calculate_daily_portfolio_return_before_t_costs(trade_returns_for_all_tickers_df)
+        actual_df = calculate_daily_portfolio_return_before_t_costs(trade_returns_for_tickers_df)
         pd.testing.assert_frame_equal(expected_df, actual_df)
 
 
-    def test_calculate_return_on_employed_capital_single_toy_column(self) -> None:
+    def test_calculate_return_on_employed_capital_after_t_cost_one_toy_column(self) -> None:
         one_way_transaction_cost_in_basis_points = 10
         input_df = pd.DataFrame({"A": [0.0, 0.01, 0, 0.04, 0.03]})
-        actual_df = calculate_daily_return_on_employed_capital(
+        actual_df = calculate_daily_return_on_employed_capital_after_t_costs(
             input_df, one_way_transaction_cost_in_basis_points
         )
         expected_df = pd.DataFrame(
@@ -75,12 +74,12 @@ class TestCalculateReturnOnEmployedCaptial:
         )
         pd.testing.assert_frame_equal(actual_df, expected_df)
 
-    def test_calculate_return_on_employed_capital_two_toy_columns(self) -> None:
+    def test_calculate_return_on_employed_capital_after_t_cost_two_toy_columns(self) -> None:
         one_way_transaction_cost_in_basis_points = 10
         input_df = pd.DataFrame(
             {"A": [0.0, 0.01, 0, 0.04, 0.03], "B": [0, -0.35, -0.19, 0, 0.2]}
         )
-        actual_df = calculate_daily_return_on_employed_capital(
+        actual_df = calculate_daily_return_on_employed_capital_after_t_costs(
             input_df, one_way_transaction_cost_in_basis_points
         )
         expected_df = pd.DataFrame(
@@ -96,4 +95,23 @@ class TestCalculateReturnOnEmployedCaptial:
         )
         pd.testing.assert_frame_equal(actual_df, expected_df)
     
+    def test_calculate_return_on_employed_capital_after_t_costs_sample_data(self) -> None:
+        one_way_t_cost_in_basis_points = 10
+        expected_df = pd.read_csv(
+            'tests/test_data/daily_return_on_employed_capital_after_t_cost_sample.csv',
+            index_col=0,
+            parse_dates=True,
+            )
+        trade_returns_for_all_tickers_df = pd.read_csv(
+            "tests/test_data/trade_returns_for_tickers_2.csv",
+            index_col=0,
+            parse_dates=True,
+        )
+        actual_df = calculate_daily_return_on_employed_capital_after_t_costs(
+            trade_returns_for_all_tickers_df,
+            one_way_t_cost_in_basis_points=one_way_t_cost_in_basis_points
+        )
+        pd.testing.assert_frame_equal(expected_df, actual_df)
+
+        
 

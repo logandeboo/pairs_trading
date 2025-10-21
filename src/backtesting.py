@@ -45,7 +45,7 @@ _PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = (
     "portfolio_gross_daily_return_after_t_cost"
 )
 _PORTFOLIO_DAILY_T_COST_COLUMN_NAME = "portfolio_daily_t_cost"
-_DAILY_TRANSACTION_COUNT_COLUMN_NAME = "transaction_count"
+DAILY_TRANSACTION_COUNT_COLUMN_NAME = "transaction_count"
 _EXIT_THRESHOLD_ABSOLUTE_TOLERANCE = 0.1
 _ANNUALIZATION_FACTOR_IN_TRADING_DAYS = 252
 _RISK_FREE_RATE_IN_DECIMAL = 0.04
@@ -270,7 +270,7 @@ def calculate_number_of_trades_per_day(
         trade_returns_for_all_tickers_df.iloc[-1] != 0
     ).sum()
     transaction_count_series.iloc[-1] += num_trades_closed_on_last_day_of_period
-    return transaction_count_series.to_frame(name="transaction_count")
+    return transaction_count_series.astype("int64").to_frame(name="transaction_count")
 
 def calculate_daily_portfolio_return_before_t_costs(
     trade_returns_for_all_tickers_df: pd.DataFrame
@@ -288,11 +288,10 @@ def calculate_daily_portfolio_return_before_t_costs(
 # For each day, the portfolio return is calculated as the sum of returns on open trades divided
 # by the number of open positions. E.g., on day t, if there are two open trades with returns of
 # .05% and 1.2%, the portfolio return is (0.0005 + 0.012) / 2
-def calculate_daily_return_on_employed_capital(
+def calculate_daily_return_on_employed_capital_after_t_costs(
     trade_returns_for_all_tickers_df: pd.DataFrame,
     one_way_t_cost_in_basis_points: int,
 ) -> pd.DataFrame:
-    breakpoint()
     daily_transaction_count_df = calculate_number_of_trades_per_day(
         trade_returns_for_all_tickers_df
     )
@@ -305,7 +304,7 @@ def calculate_daily_return_on_employed_capital(
     daily_portfolio_return_and_transaction_count_df[
         _PORTFOLIO_DAILY_T_COST_COLUMN_NAME
     ] = daily_portfolio_return_and_transaction_count_df[
-        _DAILY_TRANSACTION_COUNT_COLUMN_NAME
+        DAILY_TRANSACTION_COUNT_COLUMN_NAME
     ] * (
         one_way_t_cost_in_basis_points / _BASIS_POINTS_TO_DECIMAL_CONVERSION_FACTOR
     )
@@ -317,7 +316,6 @@ def calculate_daily_return_on_employed_capital(
             _PORTFOLIO_DAILY_T_COST_COLUMN_NAME
         ]
     )
-    breakpoint()
     return daily_portfolio_return_and_transaction_count_df[
         [PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME]
     ].fillna(0)
@@ -375,7 +373,7 @@ def get_portfolio_performance_result(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> Mapping[str, float]:
     trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
-    daily_portfolio_return_df = calculate_daily_return_on_employed_capital(
+    daily_portfolio_return_df = calculate_daily_return_on_employed_capital_after_t_costs(
         trade_returns_for_all_tickers_df, _ONE_WAY_T_COST_IN_BASIS_POINTS
     )
     annualized_return = calculate_annualized_portfolio_return(
