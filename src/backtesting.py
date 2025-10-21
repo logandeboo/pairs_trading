@@ -37,6 +37,8 @@ class PortfolioPerformanceResult(NamedTuple):
 
 
 _TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
+# TODO there is a bug in the returns calculation possibly originating
+# from the transaction cost calculation
 _ONE_WAY_T_COST_IN_BASIS_POINTS = 10
 _PORTFOLIO_DAILY_RETURN_COLUMN_NAME = "portfolio_daily_return"
 _PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = (
@@ -44,11 +46,11 @@ _PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = (
 )
 _PORTFOLIO_DAILY_T_COST_COLUMN_NAME = "portfolio_daily_t_cost"
 _DAILY_TRANSACTION_COUNT_COLUMN_NAME = "transaction_count"
-_PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = "portfolio_daily_return_after_t_cost"
 _EXIT_THRESHOLD_ABSOLUTE_TOLERANCE = 0.1
 _ANNUALIZATION_FACTOR_IN_TRADING_DAYS = 252
 _RISK_FREE_RATE_IN_DECIMAL = 0.04
-
+_BASIS_POINTS_TO_DECIMAL_CONVERSION_FACTOR = 10_000
+PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = "portfolio_daily_return_after_t_cost"
 
 
 # TODO consider triggering condition as the spread converges back
@@ -130,11 +132,10 @@ def assign_weights_from_prev_date_to_cur_date(
 
 # TODO clean this up
 def create_trade_signals_from_spread_rolling_z_score(
-    ticker_pair: tuple[str, str],
+    ticker_one: str,
+    ticker_two: str,
     spread_z_score_series: pd.Series,
 ) -> pd.DataFrame:
-    ticker_one = ticker_pair[0]
-    ticker_two = ticker_pair[1]
     ticker_one_trade_side_column_name = ticker_one + _TRADE_SIDE_COLUMN_NAME_SUFFIX
     ticker_two_trade_side_column_name = ticker_two + _TRADE_SIDE_COLUMN_NAME_SUFFIX
 
@@ -271,6 +272,16 @@ def calculate_number_of_trades_per_day(
     transaction_count_series.iloc[-1] += num_trades_closed_on_last_day_of_period
     return transaction_count_series.to_frame(name="transaction_count")
 
+def calculate_daily_portfolio_return(
+    trade_returns_for_all_tickers_df: pd.DataFrame
+) -> pd.DataFrame:
+    daily_portfolio_return_df = pd.DataFrame()
+    daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_COLUMN_NAME] = (
+        trade_returns_for_all_tickers_df.sum(axis=1)
+        / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
+    )
+    return daily_portfolio_return_df
+
 
 # Calculates total portfolio return on employed capital assuming equal dollar weight trades.
 # Σ(active trade returns) / number of active trades
@@ -279,15 +290,13 @@ def calculate_number_of_trades_per_day(
 # .05% and 1.2%, the portfolio return is (0.0005 + 0.012) / 2
 def calculate_daily_return_on_employed_capital(
     trade_returns_for_all_tickers_df: pd.DataFrame,
+    one_way_t_cost_in_basis_points: int,
 ) -> pd.DataFrame:
-    daily_portfolio_return_df = pd.DataFrame()
+    breakpoint()
     daily_transaction_count_df = calculate_number_of_trades_per_day(
         trade_returns_for_all_tickers_df
     )
-    daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_COLUMN_NAME] = (
-        trade_returns_for_all_tickers_df.sum(axis=1)
-        / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
-    )
+    daily_portfolio_return_df = calculate_daily_portfolio_return(trade_returns_for_all_tickers_df)
     daily_portfolio_return_and_transaction_count_df = daily_portfolio_return_df.merge(
         daily_transaction_count_df,
         left_index=True,
@@ -298,27 +307,28 @@ def calculate_daily_return_on_employed_capital(
     ] = daily_portfolio_return_and_transaction_count_df[
         _DAILY_TRANSACTION_COUNT_COLUMN_NAME
     ] * (
-        _ONE_WAY_T_COST_IN_BASIS_POINTS / 10_000
+        one_way_t_cost_in_basis_points / _BASIS_POINTS_TO_DECIMAL_CONVERSION_FACTOR
     )
     daily_portfolio_return_and_transaction_count_df[
-        _PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
+        PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
     ] = (
         daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_COLUMN_NAME]
         - daily_portfolio_return_and_transaction_count_df[
             _PORTFOLIO_DAILY_T_COST_COLUMN_NAME
         ]
     )
+    breakpoint()
     return daily_portfolio_return_and_transaction_count_df[
-        [_PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME]
-    ]
+        [PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME]
+    ].fillna(0)
 
 
 def calculate_annualized_portfolio_return(
     daily_portfolio_return_df: pd.DataFrame,
 ) -> float:
-    daily_portfolio_return_df[_PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME] = (
-        daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME] + 1
-    )
+    daily_portfolio_return_df[
+        _PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
+    ] = (daily_portfolio_return_df[PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME] + 1)
     total_gross_return = daily_portfolio_return_df[
         _PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
     ].prod()
@@ -341,12 +351,12 @@ def get_portfolio_performance_period_end(
 ) -> datetime:
     return daily_portfolio_returns_df.index[-1]
 
-    
+
 def calculate_annualized_portfolio_volatility(
     daily_portfolio_return_df: pd.DataFrame,
 ) -> float:
     daily_volatility = daily_portfolio_return_df[
-        _PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
+        PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
     ].std()
     return daily_volatility * np.sqrt(_ANNUALIZATION_FACTOR_IN_TRADING_DAYS)
 
@@ -355,8 +365,9 @@ def calculate_annualized_sharpe_ratio(
     annualized_return: float,
     annualized_volatility: float,
 ) -> float:
-    excess_return = annualized_return - _RISK_FREE_RATE_IN_DECIMAL    
+    excess_return = annualized_return - _RISK_FREE_RATE_IN_DECIMAL
     return excess_return / annualized_volatility
+
 
 # TODO convert returns to decimal higher up stream
 # to prevent repeated conversions
@@ -365,19 +376,20 @@ def get_portfolio_performance_result(
 ) -> Mapping[str, float]:
     trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
     daily_portfolio_return_df = calculate_daily_return_on_employed_capital(
-        trade_returns_for_all_tickers_df
+        trade_returns_for_all_tickers_df, _ONE_WAY_T_COST_IN_BASIS_POINTS
     )
     annualized_return = calculate_annualized_portfolio_return(
-            daily_portfolio_return_df.copy()
-        )
+        daily_portfolio_return_df.copy()
+    )
     annualized_volatility = calculate_annualized_portfolio_volatility(
-            daily_portfolio_return_df.copy()
-        )
-    breakpoint()
+        daily_portfolio_return_df.copy()
+    )
     portfolio_performance_result = PortfolioPerformanceResult(
         annualized_return=annualized_return,
         annualized_volatility=annualized_volatility,
-        annualized_sharpe_ratio=calculate_annualized_sharpe_ratio(annualized_return, annualized_volatility),
+        annualized_sharpe_ratio=calculate_annualized_sharpe_ratio(
+            annualized_return, annualized_volatility
+        ),
         performance_period_start=get_portfolio_performance_period_start(
             daily_portfolio_return_df
         ),
@@ -392,7 +404,7 @@ if __name__ == "__main__":
     # NOTE dates are the one year period following the two year period
     # that was screened for cointegration
     z_score_window_in_calendar_days = 15
-    num_pairs = 2
+    num_pairs = 3
     start_date = datetime(2024, 1, 1)
     # TODO the +10 is a hack to account for calendar vs trading days. Fix this
     start_date_adj_for_z_score_window = start_date - timedelta(
@@ -408,9 +420,7 @@ if __name__ == "__main__":
         path_to_ticker_list
     )
     trade_returns_for_all_tickers_df = pd.DataFrame()
-    for pair in pairs_and_hurst_exponents_top_n["ticker_pair"]:
-        ticker_one = pair[0]
-        ticker_two = pair[1]
+    for ticker_one, ticker_two in pairs_and_hurst_exponents_top_n["ticker_pair"]:
         pair_price_history_df = get_pair_price_history_df_algined_on_date(
             ticker_one,
             ticker_two,
@@ -429,7 +439,7 @@ if __name__ == "__main__":
             z_score_window_in_days=z_score_window_in_calendar_days,
         )
         trade_signals_df = create_trade_signals_from_spread_rolling_z_score(
-            pair, z_scored_spread_series
+            ticker_one, ticker_two, z_scored_spread_series
         )
         price_returns_df = create_returns_from_price_history(pair_price_history_df)
         trade_returns_for_tickers_in_pair_df = (

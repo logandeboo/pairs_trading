@@ -1,5 +1,9 @@
-from src.backtesting import calculate_number_of_trades_per_day
 import pandas as pd
+from src.backtesting import (
+    calculate_number_of_trades_per_day,
+    calculate_daily_return_on_employed_capital,
+    PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME,
+)
 
 
 class TestCalculateNumberOfTradesPerDay:
@@ -36,6 +40,44 @@ class TestCalculateNumberOfTradesPerDay:
 # TODO finish testing this
 class TestCalculateReturnOnEmployedCaptial:
 
-    def test_calculate_return_on_employed_capital_single_ticker(self) -> None:
+    def test_calculate_return_on_employed_capital_single_toy_column(self) -> None:
+        one_way_transaction_cost_in_basis_points = 10
+        input_df = pd.DataFrame({"A": [0.0, 0.01, 0, 0.04, 0.03]})
+        actual_df = calculate_daily_return_on_employed_capital(
+            input_df, one_way_transaction_cost_in_basis_points
+        )
+        expected_df = pd.DataFrame(
+            {
+                PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME: [
+                    0,
+                    0.008,
+                    0,
+                    0.039,
+                    0.029,
+                ]
+            }
+        )
+        pd.testing.assert_frame_equal(actual_df, expected_df)
 
-        input_df = pd.DataFrame({"A": []})
+    def test_calculate_return_on_employed_capital_two_toy_columns(self) -> None:
+        one_way_transaction_cost_in_basis_points = 10
+        input_df = pd.DataFrame(
+            {"A": [0.0, 0.01, 0, 0.04, 0.03], "B": [0, -0.35, -0.19, 0, 0.2]}
+        )
+        actual_df = calculate_daily_return_on_employed_capital(
+            input_df, one_way_transaction_cost_in_basis_points
+        )
+        expected_df = pd.DataFrame(
+            {
+                PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME: [
+                    0,
+                    -0.173,
+                    -0.191,
+                    0.039,
+                    0.112,
+                ]
+            }
+        )
+        pd.testing.assert_frame_equal(actual_df, expected_df)
+    
+
