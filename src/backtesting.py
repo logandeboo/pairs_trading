@@ -40,7 +40,7 @@ _TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
 # TODO there is a bug in the returns calculation possibly originating
 # from the transaction cost calculation
 _ONE_WAY_T_COST_IN_BASIS_POINTS = 10
-_PORTFOLIO_DAILY_RETURN_COLUMN_NAME = "portfolio_daily_return"
+PORTFOLIO_DAILY_RETURN_COLUMN_NAME = "portfolio_daily_return"
 _PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = (
     "portfolio_gross_daily_return_after_t_cost"
 )
@@ -272,11 +272,11 @@ def calculate_number_of_trades_per_day(
     transaction_count_series.iloc[-1] += num_trades_closed_on_last_day_of_period
     return transaction_count_series.to_frame(name="transaction_count")
 
-def calculate_daily_portfolio_return(
+def calculate_daily_portfolio_return_before_t_costs(
     trade_returns_for_all_tickers_df: pd.DataFrame
 ) -> pd.DataFrame:
     daily_portfolio_return_df = pd.DataFrame()
-    daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_COLUMN_NAME] = (
+    daily_portfolio_return_df[PORTFOLIO_DAILY_RETURN_COLUMN_NAME] = (
         trade_returns_for_all_tickers_df.sum(axis=1)
         / trade_returns_for_all_tickers_df.astype(bool).sum(axis=1)
     )
@@ -296,7 +296,7 @@ def calculate_daily_return_on_employed_capital(
     daily_transaction_count_df = calculate_number_of_trades_per_day(
         trade_returns_for_all_tickers_df
     )
-    daily_portfolio_return_df = calculate_daily_portfolio_return(trade_returns_for_all_tickers_df)
+    daily_portfolio_return_df = calculate_daily_portfolio_return_before_t_costs(trade_returns_for_all_tickers_df)
     daily_portfolio_return_and_transaction_count_df = daily_portfolio_return_df.merge(
         daily_transaction_count_df,
         left_index=True,
@@ -312,7 +312,7 @@ def calculate_daily_return_on_employed_capital(
     daily_portfolio_return_and_transaction_count_df[
         PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME
     ] = (
-        daily_portfolio_return_df[_PORTFOLIO_DAILY_RETURN_COLUMN_NAME]
+        daily_portfolio_return_df[PORTFOLIO_DAILY_RETURN_COLUMN_NAME]
         - daily_portfolio_return_and_transaction_count_df[
             _PORTFOLIO_DAILY_T_COST_COLUMN_NAME
         ]

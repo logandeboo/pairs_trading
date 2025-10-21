@@ -2,6 +2,7 @@ import pandas as pd
 from src.backtesting import (
     calculate_number_of_trades_per_day,
     calculate_daily_return_on_employed_capital,
+    calculate_daily_portfolio_return_before_t_costs,
     PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME,
 )
 
@@ -39,6 +40,21 @@ class TestCalculateNumberOfTradesPerDay:
 
 # TODO finish testing this
 class TestCalculateReturnOnEmployedCaptial:
+
+    def test_calculate_daily_portfolio_return_before_t_costs(self) -> None:
+        expected_df = pd.read_csv(
+            "tests/test_data/portfolio_daily_return_before_t_cost.csv",
+            index_col=0,
+            parse_dates=True,
+        )
+        trade_returns_for_all_tickers_df = pd.read_csv(
+            "tests/test_data/trade_returns_for_tickers_2.csv",
+            index_col=0,
+            parse_dates=True,
+        )
+        actual_df = calculate_daily_portfolio_return_before_t_costs(trade_returns_for_all_tickers_df)
+        pd.testing.assert_frame_equal(expected_df, actual_df)
+
 
     def test_calculate_return_on_employed_capital_single_toy_column(self) -> None:
         one_way_transaction_cost_in_basis_points = 10
