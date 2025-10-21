@@ -37,8 +37,6 @@ class PortfolioPerformanceResult(NamedTuple):
 
 
 _TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
-# TODO there is a bug in the returns calculation possibly originating
-# from the transaction cost calculation
 _ONE_WAY_T_COST_IN_BASIS_POINTS = 10
 PORTFOLIO_DAILY_RETURN_COLUMN_NAME = "portfolio_daily_return"
 _PORTFOLIO_GROSS_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME = (
@@ -60,6 +58,7 @@ def is_exit_condition_met(
     t_minus_one_date: datetime,
     t_minus_two_date: datetime,
     exit_threshold: float,
+    exit_threshold_proximity_tolerance: float,
 ) -> bool:
     z_score_at_t_minus_one_date = spread_z_score_series.loc[t_minus_one_date]
     z_score_at_t_minus_two_date = spread_z_score_series.loc[t_minus_two_date]
@@ -78,17 +77,10 @@ def is_exit_condition_met(
     if np.isclose(
         z_score_at_t_minus_one_date,
         exit_threshold,
-        atol=_EXIT_THRESHOLD_ABSOLUTE_TOLERANCE,
+        atol=exit_threshold_proximity_tolerance,
     ):
         return True
     return False
-
-
-def get_date_of_previous_day(
-    spread_z_score_series: pd.Series,
-    index: int,
-) -> datetime:
-    return spread_z_score_series.index[index - 1]
 
 
 def set_weights_to_zero_at_current_date(
@@ -131,27 +123,27 @@ def assign_weights_from_prev_date_to_cur_date(
 
 
 # TODO clean this up
-def create_trade_signals_from_spread_rolling_z_score(
+def create_trade_signals_from_z_scored_spread(
     ticker_one: str,
     ticker_two: str,
-    spread_z_score_series: pd.Series,
+    z_scored_spread_series: pd.Series,
+    exit_threshold_proximity_tolerance: float,
 ) -> pd.DataFrame:
     ticker_one_trade_side_column_name = ticker_one + _TRADE_SIDE_COLUMN_NAME_SUFFIX
     ticker_two_trade_side_column_name = ticker_two + _TRADE_SIDE_COLUMN_NAME_SUFFIX
 
     weight_at_date_df = pd.DataFrame(
-        index=spread_z_score_series.index,
+        index=z_scored_spread_series.index,
         columns=[ticker_one_trade_side_column_name, ticker_two_trade_side_column_name],
     )
     entrance_threshold = 2
     exit_threshold = 0
 
     is_invested = False
-    for i, (cur_date, z_score) in enumerate(spread_z_score_series.items()):
-        t_minus_one_date = spread_z_score_series.index[i - 1]
-        t_minus_two_date = spread_z_score_series.index[i - 2]
-        z_score_at_t_minus_one_date = spread_z_score_series.loc[t_minus_one_date]
-
+    for i, cur_date in enumerate(z_scored_spread_series.index):
+        t_minus_one_date = z_scored_spread_series.index[i - 1]
+        t_minus_two_date = z_scored_spread_series.index[i - 2]
+        z_score_at_t_minus_one_date = z_scored_spread_series.loc[t_minus_one_date]
         if z_score_at_t_minus_one_date >= entrance_threshold and not is_invested:
             weight_at_date_df = enter_position_at_current_date(
                 weight_at_date_df,
@@ -161,9 +153,12 @@ def create_trade_signals_from_spread_rolling_z_score(
                 is_long_ticker_one=True,
             )
             is_invested = True
-
         elif is_invested and is_exit_condition_met(
-            spread_z_score_series, t_minus_one_date, t_minus_two_date, exit_threshold
+            z_scored_spread_series,
+            t_minus_one_date,
+            t_minus_two_date,
+            exit_threshold,
+            exit_threshold_proximity_tolerance,
         ):
             weight_at_date_df = set_weights_to_zero_at_current_date(
                 weight_at_date_df,
@@ -172,7 +167,6 @@ def create_trade_signals_from_spread_rolling_z_score(
                 ticker_two_trade_side_column_name,
             )
             is_invested = False
-
         elif z_score_at_t_minus_one_date <= -entrance_threshold and not is_invested:
             weight_at_date_df = enter_position_at_current_date(
                 weight_at_date_df,
@@ -186,7 +180,6 @@ def create_trade_signals_from_spread_rolling_z_score(
             weight_at_date_df = assign_weights_from_prev_date_to_cur_date(
                 weight_at_date_df, cur_date, t_minus_one_date
             )
-
     return weight_at_date_df.fillna(0)
 
 
@@ -272,8 +265,9 @@ def calculate_number_of_trades_per_day(
     transaction_count_series.iloc[-1] += num_trades_closed_on_last_day_of_period
     return transaction_count_series.astype("int64").to_frame(name="transaction_count")
 
+
 def calculate_daily_portfolio_return_before_t_costs(
-    trade_returns_for_all_tickers_df: pd.DataFrame
+    trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> pd.DataFrame:
     daily_portfolio_return_df = pd.DataFrame()
     daily_portfolio_return_df[PORTFOLIO_DAILY_RETURN_COLUMN_NAME] = (
@@ -295,7 +289,9 @@ def calculate_daily_return_on_employed_capital_after_t_costs(
     daily_transaction_count_df = calculate_number_of_trades_per_day(
         trade_returns_for_all_tickers_df
     )
-    daily_portfolio_return_df = calculate_daily_portfolio_return_before_t_costs(trade_returns_for_all_tickers_df)
+    daily_portfolio_return_df = calculate_daily_portfolio_return_before_t_costs(
+        trade_returns_for_all_tickers_df
+    )
     daily_portfolio_return_and_transaction_count_df = daily_portfolio_return_df.merge(
         daily_transaction_count_df,
         left_index=True,
@@ -373,8 +369,10 @@ def get_portfolio_performance_result(
     trade_returns_for_all_tickers_df: pd.DataFrame,
 ) -> Mapping[str, float]:
     trade_returns_for_all_tickers_df = trade_returns_for_all_tickers_df / 100
-    daily_portfolio_return_df = calculate_daily_return_on_employed_capital_after_t_costs(
-        trade_returns_for_all_tickers_df, _ONE_WAY_T_COST_IN_BASIS_POINTS
+    daily_portfolio_return_df = (
+        calculate_daily_return_on_employed_capital_after_t_costs(
+            trade_returns_for_all_tickers_df, _ONE_WAY_T_COST_IN_BASIS_POINTS
+        )
     )
     annualized_return = calculate_annualized_portfolio_return(
         daily_portfolio_return_df.copy()
@@ -436,9 +434,14 @@ if __name__ == "__main__":
             end_date,
             z_score_window_in_days=z_score_window_in_calendar_days,
         )
-        trade_signals_df = create_trade_signals_from_spread_rolling_z_score(
-            ticker_one, ticker_two, z_scored_spread_series
+        breakpoint()
+        trade_signals_df = create_trade_signals_from_z_scored_spread(
+            ticker_one,
+            ticker_two,
+            z_scored_spread_series,
+            _EXIT_THRESHOLD_ABSOLUTE_TOLERANCE,
         )
+        breakpoint()
         price_returns_df = create_returns_from_price_history(pair_price_history_df)
         trade_returns_for_tickers_in_pair_df = (
             calculate_trade_returns_for_tickers_in_pair(

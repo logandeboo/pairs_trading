@@ -295,6 +295,7 @@ def is_pair_tradable(
         return False
 
 
+# TODO convert this to numpy for speed
 def calculate_historical_gamma(
     pair_price_history_df: pd.DataFrame,
     in_sample_start_date: datetime,
