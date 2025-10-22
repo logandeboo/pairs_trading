@@ -1,54 +1,46 @@
 import pandas as pd
-import yfinance as yf
 from statsmodels.tsa.stattools import adfuller, coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 import numpy as np
 from datetime import datetime, timedelta
 import os
-import statsmodels.api as sm
-from collections.abc import Mapping
 from pathlib import Path
 from itertools import combinations
-from typing import Sequence
+from typing import Sequence, Mapping
+import pickle
+import time
+
+_TICKER_COLUMN_NAME = "Ticker"
 
 
 # Bui & Slepaczuk methodology
 # TODO underwrite num_lags
+# TODO contradiction between signature and return np.nan in second line
 def calculate_generalized_hurst_exponent_q1(series: pd.Series) -> float:
     if len(series) < 100:
         return np.nan
-
     data = np.array(series.dropna())
     max_tau = len(data) // 4
-
     min_lag = 2
     num_lags = 20
     tau_values = np.unique(
         np.logspace(np.log10(min_lag), np.log10(max_tau), num_lags).astype(int)
     )
-
     # Calculate K_q(τ) for each lag value
     K_q_values = []
-
     for tau in tau_values:
-
         increments = np.abs(data[tau:] - data[:-tau])
         K_q_tau = np.mean(increments)
         K_q_values.append(K_q_tau)
-
     K_q_values = np.array(K_q_values)
-
     # Fit power law relationship
     log_tau = np.log(tau_values)
     log_K_q = np.log(K_q_values)
-
     valid_mask = np.isfinite(log_K_q) & np.isfinite(log_tau)
     if np.sum(valid_mask) < 3:
         return np.nan
-
     log_tau_valid = log_tau[valid_mask]
     log_K_q_valid = log_K_q[valid_mask]
-
     # Linear regression: log(K_q) = H * log(τ) + intercept
     hurst_exponent, _ = np.polyfit(log_tau_valid, log_K_q_valid, 1)
     return hurst_exponent
@@ -89,10 +81,9 @@ def get_benchmark_adj_close_history_df(
     )
 
 
-def calculate_regression_coefficient(Y: pd.Series, X: pd.Series, x_label: str) -> float:
-    X = sm.add_constant(X)
-    results = sm.OLS(Y, X).fit()
-    return float(results.params[x_label])
+def calculate_regression_coefficient(Y: pd.Series, X: pd.Series) -> float:
+    slope, _ = np.polyfit(X.values, Y.values, deg=1)
+    return float(slope)
 
 
 def is_price_series_integrated_of_order_one(
@@ -118,8 +109,8 @@ def is_pair_engle_granger_cointegrated(
 
 
 # TODO underwrite det_order and k_ar_diff parameter values
-# current parameter values are from chatgpt
-# also corroborated here https://blog.quantinsti.com/johansen-test-cointegration-building-stationary-portfolio/
+# current parameter values are from
+# https://blog.quantinsti.com/johansen-test-cointegration-building-stationary-portfolio/
 def is_pair_johansen_cointegrated(
     stock_and_benchmark_price_history_df: pd.DataFrame, ticker_one: str, ticker_two: str
 ) -> bool:
@@ -143,7 +134,7 @@ def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
     return pair_price_returns_df.dropna()
 
 
-def are_pair_betas_close_enough(
+def are_stock_betas_similar(
     ticker_one: str,
     ticker_two: str,
     benchmark_ticker: str,
@@ -157,18 +148,18 @@ def are_pair_betas_close_enough(
     ticker_two_returns_series = stock_and_benchmark_returns_df[ticker_two]
     benchmark_returns_series = stock_and_benchmark_returns_df[benchmark_ticker]
     ticker_one_beta = calculate_regression_coefficient(
-        ticker_one_returns_series, benchmark_returns_series, benchmark_ticker
+        ticker_one_returns_series, benchmark_returns_series
     )
     ticker_two_beta = calculate_regression_coefficient(
-        ticker_two_returns_series, benchmark_returns_series, benchmark_ticker
+        ticker_two_returns_series, benchmark_returns_series
     )
-    is_close_enough = np.isclose(
+    are_betas_similar = np.isclose(
         ticker_one_beta,
         ticker_two_beta,
         atol=beta_absolute_difference_threshold,
         rtol=0,
     )
-    return bool(is_close_enough)
+    return bool(are_betas_similar)
 
 
 def get_stock_and_benchmark_price_history_df_algined_on_date(
@@ -232,6 +223,17 @@ def filter_price_history_df_by_ticker(
     return stock_and_benchmark_price_history_df[ticker]
 
 
+def are_tickers_in_same_sector(
+    ticker_one: str, ticker_two: str, ticker_to_sector: Mapping[str, str]
+) -> bool:
+    return ticker_to_sector[ticker_one] == ticker_to_sector[ticker_two]
+
+
+def get_ticker_to_sector_map() -> Mapping[str, str]:
+    with open("data/ticker_to_sector.pkl", "rb") as ticker_to_sector_map_file:
+        return pickle.load(ticker_to_sector_map_file)
+
+
 # NOTE: This methodology (ex beta filter) came from Caldeira & Caldeira 2013. Paper is in references folder
 def is_pair_tradable(
     start_date: datetime,
@@ -246,7 +248,10 @@ def is_pair_tradable(
     beta_calculation_period_start = end_date - timedelta(
         days=beta_estimation_window_in_days
     )
+    ticker_to_sector = get_ticker_to_sector_map()
     try:
+        if are_tickers_in_same_sector(ticker_one, ticker_two, ticker_to_sector):
+            return False
         stock_and_benchmark_price_history_df = (
             get_stock_and_benchmark_price_history_df_algined_on_date(
                 ticker_one,
@@ -258,7 +263,7 @@ def is_pair_tradable(
                 benhcmark_price_history,
             )
         )
-        if not are_pair_betas_close_enough(
+        if not are_stock_betas_similar(
             ticker_one,
             ticker_two,
             benchmark_ticker,
@@ -295,27 +300,21 @@ def is_pair_tradable(
         return False
 
 
-# TODO convert this to numpy for speed
-def calculate_historical_gamma(
+def calculate_gamma(
     pair_price_history_df: pd.DataFrame,
     in_sample_start_date: datetime,
     in_sample_end_date: datetime,
 ) -> float:
-    """
-    Estimate gamma via OLS and return the spread = P1 - gamma * P2
-    """
     date_mask = (pair_price_history_df.index >= in_sample_start_date) & (
         pair_price_history_df.index <= in_sample_end_date
     )
     pair_price_history_in_sample_df = pair_price_history_df[date_mask]
     ticker1_price_series = pair_price_history_in_sample_df.iloc[:, 0]
     ticker2_price_series = pair_price_history_in_sample_df.iloc[:, 1]
-
-    # Add constant to allow intercept in regression
-    X = sm.add_constant(ticker2_price_series)
-    model = sm.OLS(ticker1_price_series, X).fit()
-
-    return float(model.params[1])
+    slope, _ = np.polyfit(
+        ticker2_price_series.values, ticker1_price_series.values, deg=1
+    )
+    return float(slope)
 
 
 def calculate_spread(
@@ -348,7 +347,7 @@ def calculate_trailing_zscore(
 
 def get_ticker_list(path_to_ticker_list: Path) -> list[tuple[str, str]]:
     ticker_df = pd.read_csv(path_to_ticker_list)
-    return ticker_df["Ticker"].to_list()
+    return ticker_df[_TICKER_COLUMN_NAME].to_list()
 
 
 def get_ticker_pairs(
@@ -387,7 +386,7 @@ def read_benchmark_price_history_into_dict(
 
 
 # TODO this probably won't need to write to disk once full walk-forward model is implemented
-def get_cointegrated_pairs_within_beta_range(
+def get_tradable_pairs(
     start_date: datetime,
     end_date: datetime,
     benchmark_ticker: str,
@@ -399,6 +398,7 @@ def get_cointegrated_pairs_within_beta_range(
 
     pairs = get_ticker_pairs(all_tickers_price_history_dict)
     valid_pairs = []
+    breakpoint()
     for i, pair in enumerate(pairs):
         print(i)
         ticker_one = pair[0]
@@ -408,8 +408,8 @@ def get_cointegrated_pairs_within_beta_range(
             end_date,
             ticker_one,
             ticker_two,
-            beta_estimation_window_in_calendar_days,
             benchmark_ticker,
+            beta_estimation_window_in_calendar_days,
             all_tickers_price_history_dict,
             benhcmark_price_history_dict,
         ):
@@ -431,9 +431,7 @@ def get_hurst_exponent_for_pairs(
     benhcmark_price_history_dict: Mapping[str, pd.DataFrame],
 ) -> Sequence[tuple[str, str, float]]:
     pairs_and_husrt_exponents = []
-    for pair in pairs:
-        ticker_one = pair[0]
-        ticker_two = pair[1]
+    for ticker_one, ticker_two in pairs:
         pair_price_history_df = get_pair_price_history_df_algined_on_date(
             ticker_one,
             ticker_two,
@@ -441,7 +439,7 @@ def get_hurst_exponent_for_pairs(
             end_date,
             all_tickers_price_history_dict,
         )
-        gamma = calculate_historical_gamma(pair_price_history_df, start_date, end_date)
+        gamma = calculate_gamma(pair_price_history_df, start_date, end_date)
         spread_series = calculate_spread(
             pair_price_history_df, gamma, start_date, end_date
         )
@@ -451,12 +449,10 @@ def get_hurst_exponent_for_pairs(
     return pairs_and_husrt_exponents
 
 
-# NOTE For practical reasons all data this function requires must be written to
+# NOTE For speed reasons all data required by this must be written to
 # target folders beforehand
 
-# TODO convert sm.ols to np.polyfit for speed
-
-# TODO the benchmark constituents are not PIT so there is technically survivorship bias
+# TODO benchmark constituents are currently not PIT so there is technically survivorship bias
 
 # TODO add a check that ensures the series being used to calculate beta
 # are of a certain length
@@ -474,15 +470,16 @@ if __name__ == "__main__":
     benhcmark_price_history_dict = read_benchmark_price_history_into_dict(
         benchmark_ticker
     )
-
-    valid_pairs = get_cointegrated_pairs_within_beta_range(
+    t0 = time.perf_counter()
+    valid_pairs = get_tradable_pairs(
         start_date,
         end_date,
         benchmark_ticker,
         beta_estimation_window_in_calendar_days,
-        path_to_ticker_list,
-        valid_pairs_output_path,
         all_tickers_price_history_dict,
         benhcmark_price_history_dict,
+        valid_pairs_output_path,
     )
+    t1 = time.perf_counter()
+    print(f"get_tradable_pairs completed in {t1 - t0:.2f} seconds")
     hurst_components_of_pair_spreads = get_hurst_exponent_for_pairs()
