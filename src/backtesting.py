@@ -15,9 +15,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # TODO add new file to hold common funcs
 from src.pair_selection import (
-    read_stock_price_history_into_dict,
+    get_all_tickers_price_history_df,
     calculate_spread,
-    calculate_historical_gamma,
+    calculate_gamma,
     get_pair_price_history_df_algined_on_date,
     create_returns_from_price_history,
 )
@@ -407,14 +407,11 @@ if __name__ == "__main__":
         days=z_score_window_in_calendar_days + 10
     )
     end_date = datetime(2024, 12, 31)
-    path_to_ticker_list = Path("data/russell_3000_constituents.csv")
     pairs_and_hurst_exponents = get_tmp_hurst_exps_from_disk()
     pairs_and_hurst_exponents_top_n = pairs_and_hurst_exponents.sort_values(
         by="hurst_exp"
     ).head(num_pairs)
-    all_tickers_price_history_dict = read_stock_price_history_into_dict(
-        path_to_ticker_list
-    )
+    all_tickers_price_history_dict = get_all_tickers_price_history_df()
     trade_returns_for_all_tickers_df = pd.DataFrame()
     for ticker_one, ticker_two in pairs_and_hurst_exponents_top_n["ticker_pair"]:
         pair_price_history_df = get_pair_price_history_df_algined_on_date(
@@ -424,7 +421,7 @@ if __name__ == "__main__":
             end_date,
             all_tickers_price_history_dict,
         )
-        gamma = calculate_historical_gamma(pair_price_history_df, start_date, end_date)
+        gamma = calculate_gamma(pair_price_history_df, start_date, end_date)
         spread_series = calculate_spread(
             pair_price_history_df, gamma, start_date_adj_for_z_score_window, end_date
         )
@@ -434,14 +431,12 @@ if __name__ == "__main__":
             end_date,
             z_score_window_in_days=z_score_window_in_calendar_days,
         )
-        breakpoint()
         trade_signals_df = create_trade_signals_from_z_scored_spread(
             ticker_one,
             ticker_two,
             z_scored_spread_series,
             _EXIT_THRESHOLD_ABSOLUTE_TOLERANCE,
         )
-        breakpoint()
         price_returns_df = create_returns_from_price_history(pair_price_history_df)
         trade_returns_for_tickers_in_pair_df = (
             calculate_trade_returns_for_tickers_in_pair(

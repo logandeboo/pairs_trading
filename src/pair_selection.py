@@ -6,11 +6,37 @@ from datetime import datetime, timedelta
 import os
 from pathlib import Path
 from itertools import combinations
-from typing import Sequence, Mapping
+from typing import Sequence, Mapping, Union
 import pickle
 import time
+from datetime import datetime
+import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar, GoodFriday
+from pandas.tseries.offsets import CustomBusinessDay
 
+
+_COLUMBUS_DAY_HOLIDAY_STRING = "Columbus Day"
+_VETRANS_DAY_HOLIDAY_STRING = "Veterans Day"
 _TICKER_COLUMN_NAME = "Ticker"
+_ONE_YEAR_IN_TRADING_DAYS = 252
+_BETA_ESTIMATION_PERIOD_IN_TRADING_DAYS = _ONE_YEAR_IN_TRADING_DAYS * 2
+
+
+class USTradingCalendar(USFederalHolidayCalendar):
+    rules = [
+        r
+        for r in USFederalHolidayCalendar.rules
+        if r.name not in [_COLUMBUS_DAY_HOLIDAY_STRING, _VETRANS_DAY_HOLIDAY_STRING]
+    ] + [GoodFriday]
+
+
+def subtract_n_us_trading_days_from_date(
+    date: datetime, offset_in_us_trading_days: int
+) -> datetime:
+    trading_day = CustomBusinessDay(calendar=USTradingCalendar())
+    return (
+        pd.Timestamp(date) - offset_in_us_trading_days * trading_day
+    ).to_pydatetime()
 
 
 # Bui & Slepaczuk methodology
@@ -81,8 +107,8 @@ def get_benchmark_adj_close_history_df(
     )
 
 
-def calculate_regression_coefficient(Y: pd.Series, X: pd.Series) -> float:
-    slope, _ = np.polyfit(X.values, Y.values, deg=1)
+def calculate_regression_coefficient(x_series: pd.Series, y_series: pd.Series) -> float:
+    slope, _ = np.polyfit(x_series.values, y_series.values, deg=1)
     return float(slope)
 
 
@@ -112,11 +138,9 @@ def is_pair_engle_granger_cointegrated(
 # current parameter values are from
 # https://blog.quantinsti.com/johansen-test-cointegration-building-stationary-portfolio/
 def is_pair_johansen_cointegrated(
-    stock_and_benchmark_price_history_df: pd.DataFrame, ticker_one: str, ticker_two: str
+    ticker_one_price_series: pd.Series, ticker_two_price_series: pd.Series
 ) -> bool:
-    pair_price_history_df = stock_and_benchmark_price_history_df[
-        [ticker_one, ticker_two]
-    ]
+    pair_price_history_df = pd.concat([ticker_one_price_series, ticker_two_price_series], axis=1, join='inner').dropna()
     johansen_cointegration_result = coint_johansen(
         pair_price_history_df.values, det_order=0, k_ar_diff=1
     )
@@ -131,33 +155,21 @@ def is_pair_johansen_cointegrated(
 
 def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
     pair_price_returns_df = price_history_df.pct_change() * 100
-    return pair_price_returns_df.dropna()
+    return pair_price_returns_df
 
 
 def are_stock_betas_similar(
     ticker_one: str,
     ticker_two: str,
-    benchmark_ticker: str,
-    stock_and_benchmark_price_history_df: pd.DataFrame,
+    ticker_to_beta_map: Mapping[str, float]
 ) -> bool:
     beta_absolute_difference_threshold = 0.3
-    stock_and_benchmark_returns_df = create_returns_from_price_history(
-        stock_and_benchmark_price_history_df
-    )
-    ticker_one_returns_series = stock_and_benchmark_returns_df[ticker_one]
-    ticker_two_returns_series = stock_and_benchmark_returns_df[ticker_two]
-    benchmark_returns_series = stock_and_benchmark_returns_df[benchmark_ticker]
-    ticker_one_beta = calculate_regression_coefficient(
-        ticker_one_returns_series, benchmark_returns_series
-    )
-    ticker_two_beta = calculate_regression_coefficient(
-        ticker_two_returns_series, benchmark_returns_series
-    )
+    relative_tolerance = 0
     are_betas_similar = np.isclose(
-        ticker_one_beta,
-        ticker_two_beta,
+        ticker_to_beta_map[ticker_one],
+        ticker_to_beta_map[ticker_two],
         atol=beta_absolute_difference_threshold,
-        rtol=0,
+        rtol=relative_tolerance,
     )
     return bool(are_betas_similar)
 
@@ -171,18 +183,23 @@ def get_stock_and_benchmark_price_history_df_algined_on_date(
     all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
     benhcmark_price_history_dict: Mapping[str, pd.DataFrame],
 ) -> pd.DataFrame:
-    stock_and_benchmark_price_history_df = pd.concat(
+    ticker_one_price_history_series = filter_price_history_by_date(
+        start_date, end_date, all_tickers_price_history_dict[ticker_one]
+    )
+    ticker_two_price_history_series = filter_price_history_by_date(
+        start_date, end_date, all_tickers_price_history_dict[ticker_two]
+    )
+    benchmark_price_history_series = filter_price_history_by_date(
+        start_date, end_date, benhcmark_price_history_dict[benchmark_ticker]
+    )
+    return pd.concat(
         [
-            all_tickers_price_history_dict[ticker_one],
-            all_tickers_price_history_dict[ticker_two],
-            benhcmark_price_history_dict[benchmark_ticker],
+            ticker_one_price_history_series,
+            ticker_two_price_history_series,
+            benchmark_price_history_series,
         ],
         axis=1,
-    )
-    return stock_and_benchmark_price_history_df[
-        (stock_and_benchmark_price_history_df.index >= start_date)
-        & (stock_and_benchmark_price_history_df.index <= end_date)
-    ].dropna()
+    ).dropna()
 
 
 # TODO this is basically identical to get_stock_and_benchmark_price_history_df_algined_on_date
@@ -193,34 +210,30 @@ def get_pair_price_history_df_algined_on_date(
     end_date: datetime,
     all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
 ) -> pd.DataFrame:
-    stock_price_history_df = pd.concat(
+    ticker_one_price_history_series = filter_price_history_by_date(
+        start_date, end_date, all_tickers_price_history_dict[ticker_one]
+    )
+    ticker_two_price_history_series = filter_price_history_by_date(
+        start_date, end_date, all_tickers_price_history_dict[ticker_two]
+    )
+    return pd.concat(
         [
-            all_tickers_price_history_dict[ticker_one],
-            all_tickers_price_history_dict[ticker_two],
+            ticker_one_price_history_series,
+            ticker_two_price_history_series,
         ],
         axis=1,
-    )
-    return stock_price_history_df[
-        (stock_price_history_df.index >= start_date)
-        & (stock_price_history_df.index <= end_date)
-    ].dropna()
+    ).dropna()
 
 
-def filter_price_history_df_by_date(
+def filter_price_history_by_date(
     start_date: datetime,
     end_date: datetime,
-    stock_and_benchmark_price_history_df: pd.DataFrame,
-) -> pd.DataFrame:
+    stock_and_benchmark_price_history_df: Union[pd.DataFrame, pd.Series],
+) -> Union[pd.DataFrame, pd.Series]:
     return stock_and_benchmark_price_history_df[
         (stock_and_benchmark_price_history_df.index >= start_date)
         & (stock_and_benchmark_price_history_df.index <= end_date)
     ]
-
-
-def filter_price_history_df_by_ticker(
-    ticker: str, stock_and_benchmark_price_history_df: pd.DataFrame
-) -> pd.Series:
-    return stock_and_benchmark_price_history_df[ticker]
 
 
 def are_tickers_in_same_sector(
@@ -229,57 +242,51 @@ def are_tickers_in_same_sector(
     return ticker_to_sector[ticker_one] == ticker_to_sector[ticker_two]
 
 
-def get_ticker_to_sector_map() -> Mapping[str, str]:
+def create_ticker_to_sector_map() -> Mapping[str, str]:
     with open("data/ticker_to_sector.pkl", "rb") as ticker_to_sector_map_file:
         return pickle.load(ticker_to_sector_map_file)
 
+def get_ticker_price_series_filtered_by_date(
+    start_date_for_cointegration_period: datetime,
+    end_date_for_cointegration_period: datetime,
+    ticker_one: str,
+    ticker_two: str,
+    all_tickers_price_history_df: pd.DataFrame
+) -> tuple[pd.Series, pd.Series]:
+    all_tickers_price_history_filtered_by_date_df = (
+        filter_price_history_by_date(
+            start_date_for_cointegration_period, end_date_for_cointegration_period, all_tickers_price_history_df
+        )
+    )
+    return all_tickers_price_history_filtered_by_date_df[ticker_one], all_tickers_price_history_filtered_by_date_df[ticker_two]
 
 # NOTE: This methodology (ex beta filter) came from Caldeira & Caldeira 2013. Paper is in references folder
 def is_pair_tradable(
-    start_date: datetime,
-    end_date: datetime,
+    start_date_for_cointegration_period: datetime,
+    end_date_for_cointegration_period: datetime,
     ticker_one: str,
     ticker_two: str,
-    benchmark_ticker: str,
-    beta_estimation_window_in_days: int,
-    all_tickers_price_history: Mapping[str, pd.DataFrame],
-    benhcmark_price_history: Mapping[str, pd.DataFrame],
+    all_tickers_price_history_df: pd.DataFrame,
+    ticker_to_sector_map: Mapping[str, str],
+    ticker_to_beta_map: Mapping[str, float]
+
 ) -> bool:
-    beta_calculation_period_start = end_date - timedelta(
-        days=beta_estimation_window_in_days
-    )
-    ticker_to_sector = get_ticker_to_sector_map()
     try:
-        if are_tickers_in_same_sector(ticker_one, ticker_two, ticker_to_sector):
+        if are_tickers_in_same_sector(ticker_one, ticker_two, ticker_to_sector_map):
             return False
-        stock_and_benchmark_price_history_df = (
-            get_stock_and_benchmark_price_history_df_algined_on_date(
-                ticker_one,
-                ticker_two,
-                benchmark_ticker,
-                beta_calculation_period_start,
-                end_date,
-                all_tickers_price_history,
-                benhcmark_price_history,
-            )
-        )
+
         if not are_stock_betas_similar(
             ticker_one,
             ticker_two,
-            benchmark_ticker,
-            stock_and_benchmark_price_history_df,
+            ticker_to_beta_map,
         ):
             return False
-        stock_and_benchmark_price_history_filtered_by_date_df = (
-            filter_price_history_df_by_date(
-                start_date, end_date, stock_and_benchmark_price_history_df
-            )
-        )
-        ticker_one_price_series = filter_price_history_df_by_ticker(
-            ticker_one, stock_and_benchmark_price_history_filtered_by_date_df
-        )
-        ticker_two_price_series = filter_price_history_df_by_ticker(
-            ticker_two, stock_and_benchmark_price_history_filtered_by_date_df
+        ticker_one_price_series, ticker_two_price_series = get_ticker_price_series_filtered_by_date(
+            start_date_for_cointegration_period,
+            end_date_for_cointegration_period,
+            ticker_one,
+            ticker_two,
+            all_tickers_price_history_df
         )
         if not is_price_series_integrated_of_order_one(ticker_one_price_series):
             return False
@@ -290,7 +297,7 @@ def is_pair_tradable(
         ):
             return False
         if not is_pair_johansen_cointegrated(
-            stock_and_benchmark_price_history_df, ticker_one, ticker_two
+            ticker_one_price_series, ticker_two_price_series
         ):
             return False
         return True
@@ -345,81 +352,91 @@ def calculate_trailing_zscore(
     return zscore_filtered_series
 
 
-def get_ticker_list(path_to_ticker_list: Path) -> list[tuple[str, str]]:
+def get_ticker_list() -> list[tuple[str, str]]:
+    path_to_ticker_list = Path("data/russell_3000_constituents.csv")
     ticker_df = pd.read_csv(path_to_ticker_list)
     return ticker_df[_TICKER_COLUMN_NAME].to_list()
 
 
 def get_ticker_pairs(
-    all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
+    all_tickers_price_history_df: pd.DataFrame,
+    benchmark_ticker: str
 ) -> list[tuple]:
-    tickers = list(all_tickers_price_history_dict.keys())
+    tickers = [ticker for ticker in all_tickers_price_history_df.columns if ticker != benchmark_ticker]
     return list(combinations(tickers, 2))
 
 
-# TODO fix this str path
-def read_stock_price_history_into_dict(
-    path_to_ticker_list: Path,
-) -> Mapping[str, pd.DataFrame]:
-    prices_dict = {}
-    for ticker in get_ticker_list(path_to_ticker_list):
-        file_path = os.path.join(f"data/adj_close_price_data/{ticker}.csv")
+def get_all_tickers_price_history_df(
+    start_date: datetime, end_date: datetime
+) -> pd.DataFrame:
+    all_tickers_price_history = []
+    for ticker in get_ticker_list():
+        path_to_ticker_price_history_csv = (
+            Path("data") / "adj_close_price_data" / f"{ticker}.csv"
+        )
         try:
-            prices_dict[ticker] = pd.read_csv(file_path, index_col=0, parse_dates=True)
+            all_tickers_price_history.append(
+                pd.read_csv(
+                    path_to_ticker_price_history_csv, index_col=0, parse_dates=True
+                )
+            )
         except FileNotFoundError:
             print(f"No data found for ticker: {ticker}")
             continue
-    return prices_dict
+    all_tickers_price_history_df = pd.concat(all_tickers_price_history, axis=1)
+    return filter_price_history_by_date(
+        start_date, end_date, all_tickers_price_history_df
+    )
 
 
-def read_benchmark_price_history_into_dict(
-    benchmark_ticker: str,
-) -> Mapping[str, pd.DataFrame]:
-    prices_dict = {}
-    path_to_benchmark_price_data = Path(
+def get_benchmark_price_history_df(
+    start_date: datetime, end_date: datetime, benchmark_ticker: str
+) -> pd.DataFrame:
+    path_to_benchmark_price_history_data = Path(
         f"data/adj_close_price_data_benchmarks/{benchmark_ticker}.csv"
     )
-    prices_dict[benchmark_ticker] = pd.read_csv(
-        path_to_benchmark_price_data, index_col=0, parse_dates=True
+    benchmark_price_history_df = pd.read_csv(
+        path_to_benchmark_price_history_data, index_col=0, parse_dates=True
     )
-    return prices_dict
+    return filter_price_history_by_date(
+        start_date, end_date, benchmark_price_history_df
+    )
 
 
 # TODO this probably won't need to write to disk once full walk-forward model is implemented
 def get_tradable_pairs(
-    start_date: datetime,
-    end_date: datetime,
+    start_date_for_cointegration_period: datetime,
+    end_date_for_cointegration_period: datetime,
     benchmark_ticker: str,
-    beta_estimation_window_in_calendar_days: int,
-    all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
-    benhcmark_price_history_dict: Mapping[str, pd.DataFrame],
-    valid_pairs_output_path: Path,
+    all_tickers_price_history_df: pd.DataFrame,
+    ticker_to_sector_map: Mapping[str, str],
+    ticker_to_beta_map: Mapping[str, float]
 ) -> Sequence[tuple[str, str]]:
-
-    pairs = get_ticker_pairs(all_tickers_price_history_dict)
+    
+    pairs = get_ticker_pairs(all_tickers_price_history_df, benchmark_ticker)
     valid_pairs = []
-    breakpoint()
-    for i, pair in enumerate(pairs):
+    for i, (ticker_one, ticker_two) in enumerate(pairs):
         print(i)
-        ticker_one = pair[0]
-        ticker_two = pair[1]
         if is_pair_tradable(
-            start_date,
-            end_date,
+            start_date_for_cointegration_period,
+            end_date_for_cointegration_period,
             ticker_one,
             ticker_two,
-            benchmark_ticker,
-            beta_estimation_window_in_calendar_days,
-            all_tickers_price_history_dict,
-            benhcmark_price_history_dict,
+            all_tickers_price_history_df,
+            ticker_to_sector_map,
+            ticker_to_beta_map,
         ):
-            valid_pairs.append(pair)
-            pd.DataFrame({"Valid Pairs": [pair]}).to_csv(
-                valid_pairs_output_path,
-                mode="a",
-                header=False,
-                index=False,
-            )
+            valid_pairs.append((ticker_one, ticker_two))
+            print("LENGTH VALID PAIRS: ", len(valid_pairs))
+
+
+    valid_pairs_output_path = Path(f"data/valid_pairs_{datetime.now()}.csv")
+    pd.DataFrame({"Valid Pairs": valid_pairs}).to_csv(
+        valid_pairs_output_path,
+        mode="a",
+        header=False,
+        index=False,
+    )
     return valid_pairs
 
 
@@ -456,30 +473,86 @@ def get_hurst_exponent_for_pairs(
 
 # TODO add a check that ensures the series being used to calculate beta
 # are of a certain length
-if __name__ == "__main__":
-    start_date = datetime(2022, 1, 1)
-    end_date = datetime(2023, 12, 31)
-    beta_estimation_window_in_calendar_days = 365 * 3 + 1
-    benchmark_ticker = "IWV"
-    valid_pairs_output_path = Path(f"data/valid_pairs_{datetime.now()}.csv")
-    path_to_ticker_list = Path("data/russell_3000_constituents.csv")
 
-    all_tickers_price_history_dict = read_stock_price_history_into_dict(
-        path_to_ticker_list
+
+def inner_join_series_on_date_index(
+    series_one: pd.Series, series_two: pd.Series
+) -> pd.DataFrame:
+    return pd.concat([series_one, series_two], axis=1, join="inner").dropna()
+
+
+def create_ticker_to_beta_map(
+    benchmark_ticker: str,
+    all_tickers_and_benchmark_price_history_df: pd.DataFrame,
+) -> Mapping[str, float]:
+    ticker_to_beta_map = {}
+    ticker_and_benchmark_returns_df = create_returns_from_price_history(
+        all_tickers_and_benchmark_price_history_df
     )
-    benhcmark_price_history_dict = read_benchmark_price_history_into_dict(
-        benchmark_ticker
+    for ticker in ticker_and_benchmark_returns_df.columns:
+        if ticker == benchmark_ticker:
+            continue
+        if ticker_and_benchmark_returns_df[ticker].count() < _ONE_YEAR_IN_TRADING_DAYS:
+            print("No price data over desired period for: ", ticker)
+            continue
+        benchmark_and_ticker_returns_df = inner_join_series_on_date_index(
+            ticker_and_benchmark_returns_df[benchmark_ticker], ticker_and_benchmark_returns_df[ticker]
+        )
+        ticker_to_beta_map[ticker] = calculate_regression_coefficient(
+            benchmark_and_ticker_returns_df[benchmark_ticker],
+            benchmark_and_ticker_returns_df[ticker],
+        )
+    return ticker_to_beta_map
+
+
+def join_ticker_and_benchmark_price_history_dfs(
+    all_tickers_price_history_df: pd.DataFrame,
+    benchmark_price_history_df: pd.DataFrame,
+) -> pd.DataFrame:
+    return pd.concat([all_tickers_price_history_df, benchmark_price_history_df], axis=1)
+
+
+if __name__ == "__main__":
+    benchmark_ticker = "IWV"
+    end_date_for_cointegration_period = datetime(2023, 12, 31)
+    start_date_for_cointegration_period = subtract_n_us_trading_days_from_date(
+        end_date_for_cointegration_period, _ONE_YEAR_IN_TRADING_DAYS
     )
+    start_date_for_beta_estimation_period = subtract_n_us_trading_days_from_date(
+        end_date_for_cointegration_period, _BETA_ESTIMATION_PERIOD_IN_TRADING_DAYS
+    )
+    all_tickers_price_history_df = get_all_tickers_price_history_df(
+        start_date_for_beta_estimation_period, end_date_for_cointegration_period
+    )
+    benchmark_price_history_df = get_benchmark_price_history_df(
+        start_date_for_beta_estimation_period,
+        end_date_for_cointegration_period,
+        benchmark_ticker,
+    )
+    all_tickers_and_benchmark_price_history_df = (
+        join_ticker_and_benchmark_price_history_dfs(
+            all_tickers_price_history_df, benchmark_price_history_df
+        )
+    )
+    ticker_to_beta_map = create_ticker_to_beta_map(
+        benchmark_ticker, all_tickers_and_benchmark_price_history_df
+    )
+    ticker_to_sector_map = create_ticker_to_sector_map()
     t0 = time.perf_counter()
     valid_pairs = get_tradable_pairs(
-        start_date,
-        end_date,
+        start_date_for_cointegration_period,
+        end_date_for_cointegration_period,
         benchmark_ticker,
-        beta_estimation_window_in_calendar_days,
-        all_tickers_price_history_dict,
-        benhcmark_price_history_dict,
-        valid_pairs_output_path,
+        all_tickers_price_history_df,
+        ticker_to_sector_map,
+        ticker_to_beta_map,
     )
     t1 = time.perf_counter()
     print(f"get_tradable_pairs completed in {t1 - t0:.2f} seconds")
     hurst_components_of_pair_spreads = get_hurst_exponent_for_pairs()
+
+
+# TODO this thing needs to get a lot faster than ~5 hours
+# Idea is twofold 1) be more strategic about how data is passed down stream. The dfs should only be sliced twice. Once for beta calculation
+# and once again for the cointegration period. 2) do not repeat beta calculations. Right now betas are being recomputed every time a ticker
+# shows up in a new pair (within the same sector) e.g., NVDA/MSFT and NVDA/AAPL is a duplicate beta calculation for NVDA.
