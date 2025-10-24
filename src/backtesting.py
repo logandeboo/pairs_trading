@@ -10,15 +10,15 @@ import ast
 import sys
 from typing import NamedTuple, Mapping
 
-# TODO this is a temporary workaround
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# TODO add new file to hold common funcs
 from src.pair_selection import (
-    get_all_tickers_price_history_df,
+    get_pair_price_history_df_algined_on_date,
+)
+from src.price_data_loader import (
+    get_all_tickers_price_history_df
+)
+from src.statistical_utils import (
     calculate_spread,
     calculate_gamma,
-    get_pair_price_history_df_algined_on_date,
     create_returns_from_price_history,
 )
 

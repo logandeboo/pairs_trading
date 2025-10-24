@@ -2,24 +2,22 @@ import pandas as pd
 from statsmodels.tsa.stattools import adfuller, coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 import numpy as np
-from datetime import datetime, timedelta
-import os
+from datetime import datetime
 from pathlib import Path
 from itertools import combinations
 from typing import Sequence, Mapping, Union, Collection
 import pickle
-import time
-from datetime import datetime
-import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar, GoodFriday
 from pandas.tseries.offsets import CustomBusinessDay
+from src.time_series_utils import (
+    filter_price_history_series_or_df_by_date,
+    get_pair_price_history_df_algined_on_date
+)
 
 
 _COLUMBUS_DAY_HOLIDAY_STRING = "Columbus Day"
 _VETRANS_DAY_HOLIDAY_STRING = "Veterans Day"
-_TICKER_COLUMN_NAME = "Ticker"
 _ONE_YEAR_IN_TRADING_DAYS = 252
-_BETA_ESTIMATION_PERIOD_IN_TRADING_DAYS = _ONE_YEAR_IN_TRADING_DAYS * 2
 
 
 class USTradingCalendar(USFederalHolidayCalendar):
@@ -155,9 +153,9 @@ def is_pair_johansen_cointegrated(
     return trace_stat > critical_value
 
 
-def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
-    pair_price_returns_df = price_history_df.pct_change() * 100
-    return pair_price_returns_df
+# def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
+#     pair_price_returns_df = price_history_df.pct_change() * 100
+#     return pair_price_returns_df
 
 
 def are_stock_betas_similar(
@@ -203,37 +201,37 @@ def get_stock_and_benchmark_price_history_df_algined_on_date(
 
 
 # TODO this is basically identical to get_stock_and_benchmark_price_history_df_algined_on_date
-def get_pair_price_history_df_algined_on_date(
-    ticker_one: str,
-    ticker_two: str,
-    start_date: datetime,
-    end_date: datetime,
-    all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
-) -> pd.DataFrame:
-    ticker_one_price_history_series = filter_price_history_series_or_df_by_date(
-        start_date, end_date, all_tickers_price_history_dict[ticker_one]
-    )
-    ticker_two_price_history_series = filter_price_history_series_or_df_by_date(
-        start_date, end_date, all_tickers_price_history_dict[ticker_two]
-    )
-    return pd.concat(
-        [
-            ticker_one_price_history_series,
-            ticker_two_price_history_series,
-        ],
-        axis=1,
-    ).dropna()
+# def get_pair_price_history_df_algined_on_date(
+#     ticker_one: str,
+#     ticker_two: str,
+#     start_date: datetime,
+#     end_date: datetime,
+#     all_tickers_price_history_dict: Mapping[str, pd.DataFrame],
+# ) -> pd.DataFrame:
+#     ticker_one_price_history_series = filter_price_history_series_or_df_by_date(
+#         start_date, end_date, all_tickers_price_history_dict[ticker_one]
+#     )
+#     ticker_two_price_history_series = filter_price_history_series_or_df_by_date(
+#         start_date, end_date, all_tickers_price_history_dict[ticker_two]
+#     )
+#     return pd.concat(
+#         [
+#             ticker_one_price_history_series,
+#             ticker_two_price_history_series,
+#         ],
+#         axis=1,
+#     ).dropna()
 
 
-def filter_price_history_series_or_df_by_date(
-    start_date: datetime,
-    end_date: datetime,
-    stock_and_benchmark_price_history_df: Union[pd.DataFrame, pd.Series],
-) -> Union[pd.DataFrame, pd.Series]:
-    return stock_and_benchmark_price_history_df[
-        (stock_and_benchmark_price_history_df.index >= start_date)
-        & (stock_and_benchmark_price_history_df.index <= end_date)
-    ]
+# def filter_price_history_series_or_df_by_date(
+#     start_date: datetime,
+#     end_date: datetime,
+#     stock_and_benchmark_price_history_df: Union[pd.DataFrame, pd.Series],
+# ) -> Union[pd.DataFrame, pd.Series]:
+#     return stock_and_benchmark_price_history_df[
+#         (stock_and_benchmark_price_history_df.index >= start_date)
+#         & (stock_and_benchmark_price_history_df.index <= end_date)
+#     ]
 
 
 def are_tickers_in_same_sector(
@@ -294,36 +292,36 @@ def is_pair_cointegrated(
         return False
 
 
-def calculate_gamma(
-    pair_price_history_df: pd.DataFrame,
-    in_sample_start_date: datetime,
-    in_sample_end_date: datetime,
-) -> float:
-    date_mask = (pair_price_history_df.index >= in_sample_start_date) & (
-        pair_price_history_df.index <= in_sample_end_date
-    )
-    pair_price_history_in_sample_df = pair_price_history_df[date_mask]
-    ticker1_price_series = pair_price_history_in_sample_df.iloc[:, 0]
-    ticker2_price_series = pair_price_history_in_sample_df.iloc[:, 1]
-    slope, _ = np.polyfit(
-        ticker2_price_series.values, ticker1_price_series.values, deg=1
-    )
-    return float(slope)
+# def calculate_gamma(
+#     pair_price_history_df: pd.DataFrame,
+#     in_sample_start_date: datetime,
+#     in_sample_end_date: datetime,
+# ) -> float:
+#     date_mask = (pair_price_history_df.index >= in_sample_start_date) & (
+#         pair_price_history_df.index <= in_sample_end_date
+#     )
+#     pair_price_history_in_sample_df = pair_price_history_df[date_mask]
+#     ticker1_price_series = pair_price_history_in_sample_df.iloc[:, 0]
+#     ticker2_price_series = pair_price_history_in_sample_df.iloc[:, 1]
+#     slope, _ = np.polyfit(
+#         ticker2_price_series.values, ticker1_price_series.values, deg=1
+#     )
+#     return float(slope)
 
 
-def calculate_spread(
-    pair_price_history_df: pd.DataFrame,
-    gamma: float,
-    start_date: datetime,
-    end_date: datetime,
-) -> pd.Series:
-    date_mask = (pair_price_history_df.index >= start_date) & (
-        pair_price_history_df.index <= end_date
-    )
-    pair_price_history_out_of_sample_df = pair_price_history_df[date_mask]
-    ticker1_price_series = pair_price_history_out_of_sample_df.iloc[:, 0]
-    ticker2_price_series = pair_price_history_out_of_sample_df.iloc[:, 1]
-    return ticker1_price_series - gamma * ticker2_price_series
+# def calculate_spread(
+#     pair_price_history_df: pd.DataFrame,
+#     gamma: float,
+#     start_date: datetime,
+#     end_date: datetime,
+# ) -> pd.Series:
+#     date_mask = (pair_price_history_df.index >= start_date) & (
+#         pair_price_history_df.index <= end_date
+#     )
+#     pair_price_history_out_of_sample_df = pair_price_history_df[date_mask]
+#     ticker1_price_series = pair_price_history_out_of_sample_df.iloc[:, 0]
+#     ticker2_price_series = pair_price_history_out_of_sample_df.iloc[:, 1]
+#     return ticker1_price_series - gamma * ticker2_price_series
 
 
 def calculate_trailing_zscore(
@@ -339,10 +337,10 @@ def calculate_trailing_zscore(
     return zscore_filtered_series
 
 
-def get_ticker_list() -> list[tuple[str, str]]:
-    path_to_ticker_list = Path("data/russell_3000_constituents.csv")
-    ticker_df = pd.read_csv(path_to_ticker_list)
-    return ticker_df[_TICKER_COLUMN_NAME].to_list()
+# def get_ticker_list() -> list[tuple[str, str]]:
+#     path_to_ticker_list = Path("data/russell_3000_constituents.csv")
+#     ticker_df = pd.read_csv(path_to_ticker_list)
+#     return ticker_df[_TICKER_COLUMN_NAME].to_list()
 
 
 def get_all_possible_ticker_pairs(
@@ -351,27 +349,27 @@ def get_all_possible_ticker_pairs(
     return list(combinations(all_tickers_price_history_df.columns, 2))
 
 
-def get_all_tickers_price_history_df(
-    start_date: datetime, end_date: datetime
-) -> pd.DataFrame:
-    all_tickers_price_history = []
-    for ticker in get_ticker_list():
-        path_to_ticker_price_history_csv = (
-            Path("data") / "adj_close_price_data" / f"{ticker}.csv"
-        )
-        try:
-            all_tickers_price_history.append(
-                pd.read_csv(
-                    path_to_ticker_price_history_csv, index_col=0, parse_dates=True
-                )
-            )
-        except FileNotFoundError:
-            print(f"No data found for ticker: {ticker}")
-            continue
-    all_tickers_price_history_df = pd.concat(all_tickers_price_history, axis=1)
-    return filter_price_history_series_or_df_by_date(
-        start_date, end_date, all_tickers_price_history_df
-    )
+# def get_all_tickers_price_history_df(
+#     start_date: datetime, end_date: datetime
+# ) -> pd.DataFrame:
+#     all_tickers_price_history = []
+#     for ticker in get_ticker_list():
+#         path_to_ticker_price_history_csv = (
+#             Path("data") / "adj_close_price_data" / f"{ticker}.csv"
+#         )
+#         try:
+#             all_tickers_price_history.append(
+#                 pd.read_csv(
+#                     path_to_ticker_price_history_csv, index_col=0, parse_dates=True
+#                 )
+#             )
+#         except FileNotFoundError:
+#             print(f"No data found for ticker: {ticker}")
+#             continue
+#     all_tickers_price_history_df = pd.concat(all_tickers_price_history, axis=1)
+#     return filter_price_history_series_or_df_by_date(
+#         start_date, end_date, all_tickers_price_history_df
+#     )
 
 
 def get_benchmark_price_history_df(
@@ -420,13 +418,13 @@ def get_cointegrated_pairs(
     return valid_pairs
 
 
-def get_hurst_exponent_for_pairs(
+def calculate_hust_exponent_for_pairs(
     start_date_for_cointegration_period: datetime,
     end_date_for_cointegration_period: datetime,
-    cointegrated_pairs: Sequence[tuple[str, str]],
+    cointegrated_pairs: Collection[tuple[str, str]],
     cointegrated_ticker_price_history_df: pd.DataFrame,
-) -> Sequence[tuple[str, str, float]]:
-    pairs_and_husrt_exponents = []
+) -> Collection[tuple[str, str, float]]:
+    pair_and_husrt_exponents = []
     for ticker_one, ticker_two in cointegrated_pairs:
         pair_price_history_df = get_pair_price_history_df_algined_on_date(
             ticker_one,
@@ -446,10 +444,10 @@ def get_hurst_exponent_for_pairs(
             start_date_for_cointegration_period,
             end_date_for_cointegration_period,
         )
-        pairs_and_husrt_exponents.append(
-            calculate_generalized_hurst_exponent_q1(spread_series)
+        pair_and_husrt_exponents.append(
+            (ticker_one, ticker_two, calculate_generalized_hurst_exponent_q1(spread_series))
         )
-    return pairs_and_husrt_exponents
+    return pair_and_husrt_exponents
 
 
 def filter_price_history_df_by_pairs(
@@ -565,42 +563,79 @@ def get_all_tickers_and_benchmark_price_history_df(
         all_tickers_price_history_df, benchmark_price_history_df
     )
 
-
-if __name__ == "__main__":
-    end_date_for_cointegration_period = datetime(2023, 12, 31)
-    start_date_for_cointegration_period = subtract_n_us_trading_days_from_date(
-        end_date_for_cointegration_period, _ONE_YEAR_IN_TRADING_DAYS
+def get_cointegrated_pairs_with_hurst_exponent(
+    end_date_for_cointegration_test_period: datetime,
+    beta_estimation_period_in_trading_days: int,
+    cointegration_test_period_in_trading_days: int
+) -> Collection[tuple[str, str, float]]:
+    start_date_for_cointegration_test_period = subtract_n_us_trading_days_from_date(
+        end_date_for_cointegration_test_period, cointegration_test_period_in_trading_days
     )
     start_date_for_beta_estimation_period = subtract_n_us_trading_days_from_date(
-        end_date_for_cointegration_period, _BETA_ESTIMATION_PERIOD_IN_TRADING_DAYS
+        end_date_for_cointegration_test_period, beta_estimation_period_in_trading_days
     )
     all_tickers_price_history_df = get_all_tickers_price_history_df(
-        start_date_for_beta_estimation_period, end_date_for_cointegration_period
+        start_date_for_beta_estimation_period, end_date_for_cointegration_test_period
     )
     all_possible_pairs = get_all_possible_ticker_pairs(all_tickers_price_history_df)
     pairs_with_common_sector = get_pairs_with_common_sector(all_possible_pairs)
     pairs_with_common_sector_and_beta = get_pairs_with_common_beta(
         pairs_with_common_sector, all_tickers_price_history_df
     )
-    filtered_ticker_price_history_df = filter_price_history_df_by_pairs(
+    ticker_price_history_filtered_by_sector_and_beta_df = filter_price_history_df_by_pairs(
         pairs_with_common_sector_and_beta, all_tickers_price_history_df
     )
     cointegrated_pairs = get_cointegrated_pairs(
-        start_date_for_cointegration_period,
-        end_date_for_cointegration_period,
-        filtered_ticker_price_history_df,
+        start_date_for_cointegration_test_period,
+        end_date_for_cointegration_test_period,
+        ticker_price_history_filtered_by_sector_and_beta_df,
         pairs_with_common_sector_and_beta,
     )
     cointegrated_ticker_price_history_df = filter_price_history_df_by_pairs(
-        cointegrated_pairs, filtered_ticker_price_history_df
+        cointegrated_pairs, ticker_price_history_filtered_by_sector_and_beta_df
     )
-    hurst_components_of_pair_spreads = get_hurst_exponent_for_pairs(
-        start_date_for_cointegration_period,
-        end_date_for_cointegration_period,
+    return calculate_hust_exponent_for_pairs(
+        start_date_for_cointegration_test_period,
+        end_date_for_cointegration_test_period,
         cointegrated_pairs,
         cointegrated_ticker_price_history_df,
     )
-    breakpoint()
+
+# if __name__ == "__main__":
+#     end_date_for_cointegration_period = datetime(2023, 12, 31)
+#     start_date_for_cointegration_period = subtract_n_us_trading_days_from_date(
+#         end_date_for_cointegration_period, _ONE_YEAR_IN_TRADING_DAYS
+#     )
+#     start_date_for_beta_estimation_period = subtract_n_us_trading_days_from_date(
+#         end_date_for_cointegration_period, _BETA_ESTIMATION_PERIOD_IN_TRADING_DAYS
+#     )
+#     all_tickers_price_history_df = get_all_tickers_price_history_df(
+#         start_date_for_beta_estimation_period, end_date_for_cointegration_period
+#     )
+#     all_possible_pairs = get_all_possible_ticker_pairs(all_tickers_price_history_df)
+#     pairs_with_common_sector = get_pairs_with_common_sector(all_possible_pairs)
+#     pairs_with_common_sector_and_beta = get_pairs_with_common_beta(
+#         pairs_with_common_sector, all_tickers_price_history_df
+#     )
+#     ticker_price_history_filtered_by_sector_and_beta_df = filter_price_history_df_by_pairs(
+#         pairs_with_common_sector_and_beta, all_tickers_price_history_df
+#     )
+#     cointegrated_pairs = get_cointegrated_pairs(
+#         start_date_for_cointegration_period,
+#         end_date_for_cointegration_period,
+#         ticker_price_history_filtered_by_sector_and_beta_df,
+#         pairs_with_common_sector_and_beta,
+#     )
+#     cointegrated_ticker_price_history_df = filter_price_history_df_by_pairs(
+#         cointegrated_pairs, ticker_price_history_filtered_by_sector_and_beta_df
+#     )
+#     hurst_components_of_pair_spreads = calculate_hust_exponent_for_pairs(
+#         start_date_for_cointegration_period,
+#         end_date_for_cointegration_period,
+#         cointegrated_pairs,
+#         cointegrated_ticker_price_history_df,
+#     )
+#     breakpoint()
 
 # NOTE for the period ending at (2023, 12, 31):
 # 975,562 pairs are 1) in the same sector and 2) have a beta within .3
