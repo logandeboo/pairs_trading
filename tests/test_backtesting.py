@@ -1,9 +1,9 @@
 import pandas as pd
-from src.backtesting import (
+from src.simulation import (
     calculate_number_of_trades_per_day,
     calculate_daily_return_on_employed_capital_after_t_costs,
     calculate_daily_portfolio_return_before_t_costs,
-    create_trade_signals_from_z_scored_spread,
+    get_pair_trade_signals_by_ticker_df,
     DAILY_TRANSACTION_COUNT_COLUMN_NAME,
     PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME,
 )
@@ -20,11 +20,11 @@ class TestCreateTradeSignalsFromSpreadRollingZScore:
             parse_dates=True,
         ).squeeze("columns")
 
-        actual_df = create_trade_signals_from_z_scored_spread(
+        actual_df = get_pair_trade_signals_by_ticker_df(
             ticker_one,
             ticker_two,
             z_scored_spread_series,
-            exit_threshold_proximity_tolerance=0.1,
+            _EXIT_THRESHOLD_ABSOLUTE_TOLERANCE=0.1,
         )
         expected_df = pd.read_csv(
             "tests/test_data/KVUE_WVE_trade_signals.csv", index_col=0, parse_dates=True
