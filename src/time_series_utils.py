@@ -36,18 +36,18 @@ def add_n_us_trading_days_to_date(
     ).to_pydatetime()
 
 
-def filter_price_history_series_or_df_by_date(
+def filter_price_history_series_or_df_by_date_inclusive(
     start_date: datetime,
     end_date: datetime,
-    stock_and_benchmark_price_history_df: Union[pd.DataFrame, pd.Series],
+    df_or_series_with_date_index: Union[pd.DataFrame, pd.Series],
 ) -> Union[pd.DataFrame, pd.Series]:
-    return stock_and_benchmark_price_history_df[
-        (stock_and_benchmark_price_history_df.index >= start_date)
-        & (stock_and_benchmark_price_history_df.index <= end_date)
+    return df_or_series_with_date_index[
+        (df_or_series_with_date_index.index >= start_date)
+        & (df_or_series_with_date_index.index <= end_date)
     ]
 
 
-def get_pair_price_history_df_filtered_by_date(
+def filter_price_history_df_by_pair_and_date(
     ticker_one: str,
     ticker_two: str,
     start_date: datetime,
@@ -55,6 +55,6 @@ def get_pair_price_history_df_filtered_by_date(
     all_tickers_price_history_df: pd.DataFrame,
 ) -> pd.DataFrame:
     pair_price_history_df = all_tickers_price_history_df[[ticker_one, ticker_two]]
-    return filter_price_history_series_or_df_by_date(
+    return filter_price_history_series_or_df_by_date_inclusive(
         start_date, end_date, pair_price_history_df
     ).dropna()

@@ -3,7 +3,7 @@ from typing import NamedTuple
 import pandas as pd
 import numpy as np
 from typing import Mapping, Collection
-from src.simulation import get_all_pair_returns_by_ticker_df
+from src.simulation.simulation import get_simulated_returns_by_portfolio_tickers_df
 
 PORTFOLIO_DAILY_RETURN_COLUMN_NAME = "portfolio_daily_return"
 _ANNUALIZATION_FACTOR_IN_TRADING_DAYS = 252
@@ -151,8 +151,6 @@ def calculate_annualized_sharpe_ratio(
     return excess_return / annualized_volatility
 
 
-# TODO convert returns to decimal higher up stream
-# to prevent repeated conversions
 def get_portfolio_performance_result(
     start_date_for_simulation: datetime,
     end_date_for_simulation: datetime,
@@ -161,7 +159,7 @@ def get_portfolio_performance_result(
     *,
     spread_z_score_rolling_window_in_trading_days: int,
 ) -> Mapping[str, float]:
-    returns_by_ticker_df = get_all_pair_returns_by_ticker_df(
+    returns_by_ticker_df = get_simulated_returns_by_portfolio_tickers_df(
         start_date_for_simulation,
         end_date_for_simulation,
         pairs_for_portfolio_simulation,

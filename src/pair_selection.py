@@ -6,8 +6,8 @@ from itertools import combinations
 from typing import Sequence, Mapping, Union, Collection
 
 from src.time_series_utils import (
-    filter_price_history_series_or_df_by_date,
-    get_pair_price_history_df_filtered_by_date,
+    filter_price_history_series_or_df_by_date_inclusive,
+    filter_price_history_df_by_pair_and_date,
     ONE_YEAR_IN_TRADING_DAYS,
 )
 from src.data_loader import (
@@ -17,7 +17,6 @@ from src.data_loader import (
 )
 from src.statistical_utils import (
     calculate_regression_coefficient,
-    calculate_gamma,
     get_pair_spread_series,
     calculate_generalized_hurst_exponent_q1,
     is_price_series_integrated_of_order_one,
@@ -90,10 +89,12 @@ def filter_pairs_for_cointegration(
     tickers_price_history_df: pd.DataFrame,
 ) -> Sequence[tuple[str, str]]:
     valid_pairs = []
-    filtered_tickers_price_history_df = filter_price_history_series_or_df_by_date(
-        start_date_for_cointegration_period,
-        end_date_for_cointegration_period,
-        tickers_price_history_df,
+    filtered_tickers_price_history_df = (
+        filter_price_history_series_or_df_by_date_inclusive(
+            start_date_for_cointegration_period,
+            end_date_for_cointegration_period,
+            tickers_price_history_df,
+        )
     )
     for i, (ticker_one, ticker_two) in enumerate(pairs_with_common_sector_and_beta):
         print(i)
@@ -122,23 +123,15 @@ def calculate_hust_exponent_for_pairs(
 ) -> Collection[tuple[str, str, float]]:
     pair_and_husrt_exponents = []
     for ticker_one, ticker_two in cointegrated_pairs:
-        pair_price_history_df = get_pair_price_history_df_filtered_by_date(
+        pair_price_history_df = filter_price_history_df_by_pair_and_date(
             ticker_one,
             ticker_two,
             start_date_for_cointegration_period,
             end_date_for_cointegration_period,
             cointegrated_ticker_price_history_df,
         )
-        gamma = calculate_gamma(
-            pair_price_history_df,
-            start_date_for_cointegration_period,
-            end_date_for_cointegration_period,
-        )
         spread_series = get_pair_spread_series(
             pair_price_history_df,
-            gamma,
-            start_date_for_cointegration_period,
-            end_date_for_cointegration_period,
         )
         pair_and_husrt_exponents.append(
             (
@@ -252,7 +245,7 @@ def join_ticker_and_benchmark_price_history_dfs(
 
 
 def filter_cointegrated_pairs_by_hurst_exponent(
-    cointegrated_pairs_with_hurst_exponent: Collection[tuple[str, str, float]],
+    cointegrated_pairs_with_hurst_exponent: Collection[tuple[str, str]],
     num_pairs_in_portfolio: int,
 ) -> Collection[tuple[str, str, float]]:
     pairs_sorted_by_hurst_exponent = [
@@ -270,7 +263,7 @@ def get_pairs_for_portfolio_simulation(
     all_tickers_price_history_df: pd.DataFrame,
     *,
     num_pairs_in_portfolio: int,
-) -> Collection[tuple[str, str, float]]:
+) -> Collection[tuple[str, str]]:
     all_possible_pairs = create_ticker_pairs(all_tickers_price_history_df)
     pairs_with_common_sector = filter_pairs_for_common_sector(all_possible_pairs)
     pairs_with_common_sector_and_beta = filter_pairs_for_common_beta(

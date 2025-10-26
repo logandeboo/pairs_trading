@@ -3,26 +3,13 @@ from datetime import datetime
 import numpy as np
 from statsmodels.tsa.stattools import adfuller, coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
-
+from src.time_series_utils import (
+    add_n_us_trading_days_to_date,
+    filter_price_history_series_or_df_by_date_inclusive,
+)
 
 _TICKER_ONE_INDEX = 0
 _TICKER_TWO_INDEX = 1
-
-
-def get_pair_spread_series(
-    pair_price_history_df: pd.DataFrame,
-    start_date: datetime,
-    end_date: datetime,
-) -> pd.Series:
-    gamma = calculate_gamma(pair_price_history_df, start_date, end_date)
-    ticker1_price_series = pair_price_history_df.iloc[:, _TICKER_ONE_INDEX]
-    ticker2_price_series = pair_price_history_df.iloc[:, _TICKER_TWO_INDEX]
-    return ticker1_price_series - gamma * ticker2_price_series
-
-
-def calculate_regression_coefficient(x_series: pd.Series, y_series: pd.Series) -> float:
-    slope, _ = np.polyfit(x_series.values, y_series.values, deg=1)
-    return float(slope)
 
 
 def calculate_gamma(
@@ -31,6 +18,20 @@ def calculate_gamma(
     ticker1_price_series = pair_price_history_df.iloc[:, _TICKER_ONE_INDEX]
     ticker2_price_series = pair_price_history_df.iloc[:, _TICKER_TWO_INDEX]
     return calculate_regression_coefficient(ticker2_price_series, ticker1_price_series)
+
+
+def get_pair_spread_series(
+    pair_price_history_df: pd.DataFrame,
+) -> pd.Series:
+    gamma = calculate_gamma(pair_price_history_df)
+    ticker1_price_series = pair_price_history_df.iloc[:, _TICKER_ONE_INDEX]
+    ticker2_price_series = pair_price_history_df.iloc[:, _TICKER_TWO_INDEX]
+    return ticker1_price_series - gamma * ticker2_price_series
+
+
+def calculate_regression_coefficient(x_series: pd.Series, y_series: pd.Series) -> float:
+    slope, _ = np.polyfit(x_series.values, y_series.values, deg=1)
+    return float(slope)
 
 
 def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
@@ -128,22 +129,32 @@ def calculate_trailing_zscore(
 
 
 def get_pair_spread_rolling_z_score_series(
-    start_date_for_simulation: datetime,
     start_date_for_simulation_adj_for_z_score_rolling_window: datetime,
-    end_date_for_simulation: datetime,
+    spread_rolling_z_score_series_end_date: datetime,
     pair_price_history_df: pd.DataFrame,
     *,
-    z_score_window_in_days: int,
+    z_score_window_in_trading_days: int,
 ) -> pd.Series:
-    pair_spread_series = get_pair_spread_series(
+    spread_series = get_pair_spread_series(
         pair_price_history_df,
         start_date_for_simulation_adj_for_z_score_rolling_window,
-        end_date_for_simulation,
+        spread_rolling_z_score_series_end_date,
     )
-    rolling_mean = pair_spread_series.rolling(window=z_score_window_in_days).mean()
-    rolling_std = pair_spread_series.rolling(window=z_score_window_in_days).std()
-    rolling_z_score = (pair_spread_series - rolling_mean) / rolling_std
-    return rolling_z_score[
-        (rolling_z_score.index >= start_date_for_simulation)
-        & (rolling_z_score.index <= end_date_for_simulation)
-    ]
+    spread_rolling_mean_series = spread_series.rolling(
+        window=z_score_window_in_trading_days
+    ).mean()
+    spread_rolling_std_series = spread_series.rolling(
+        window=z_score_window_in_trading_days
+    ).std()
+    spread_rolling_z_score_series = (
+        spread_series - spread_rolling_mean_series
+    ) / spread_rolling_std_series
+    spread_rolling_z_score_series_start_date = add_n_us_trading_days_to_date(
+        start_date_for_simulation_adj_for_z_score_rolling_window,
+        offset_in_us_trading_days=z_score_window_in_trading_days,
+    )
+    return filter_price_history_series_or_df_by_date_inclusive(
+        spread_rolling_z_score_series_start_date,
+        spread_rolling_z_score_series_end_date,
+        spread_rolling_z_score_series,
+    )
