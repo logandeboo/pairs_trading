@@ -1,16 +1,16 @@
 from datetime import datetime
-from src.pair_selection import get_pairs_for_portfolio_simulation
+from src.pair_selection import get_pairs_to_backtest
 from src.time_series_utils import (
     subtract_n_us_trading_days_from_date,
     ONE_YEAR_IN_TRADING_DAYS,
     ONE_DAY_IN_TRADING_DAYS,
 )
 from src.data_loader import get_all_tickers_price_history_df
-from src.simulation.simulation import get_simulated_returns_by_portfolio_tickers_df
+from src.backtest.backtest import get_backtest_returns_by_ticker_df
 from src.performance import get_portfolio_performance_result
 
 
-SIMULATION_PERIOD_IN_TRADING_DAYS = ONE_YEAR_IN_TRADING_DAYS
+BACKTEST_PERIOD_IN_TRADING_DAYS = ONE_YEAR_IN_TRADING_DAYS
 COINTEGRATION_TEST_PERIOD_IN_TRADING_DAYS = ONE_YEAR_IN_TRADING_DAYS
 BETA_ESTIMATION_PERIOD_IN_TRADING_DAYS = ONE_YEAR_IN_TRADING_DAYS * 2
 NUM_PAIRS_IN_PORTFOLIO = 10
@@ -40,35 +40,35 @@ def parse_pair_df():
 
 
 if __name__ == "__main__":
-    simulation_end_date = datetime(2023, 1, 1)
-    simulation_start_date = subtract_n_us_trading_days_from_date(
-        simulation_end_date, offset_in_us_trading_days=SIMULATION_PERIOD_IN_TRADING_DAYS
+    backtest_end_date = datetime(2023, 1, 1)
+    backtest_start_date = subtract_n_us_trading_days_from_date(
+        backtest_end_date, offset_in_us_trading_days=BACKTEST_PERIOD_IN_TRADING_DAYS
     )
     cointegration_test_end_date = subtract_n_us_trading_days_from_date(
-        simulation_start_date, offset_in_us_trading_days=ONE_DAY_IN_TRADING_DAYS
+        backtest_start_date, offset_in_us_trading_days=ONE_DAY_IN_TRADING_DAYS
     )
     cointegration_test_start_date = subtract_n_us_trading_days_from_date(
         cointegration_test_end_date,
         offset_in_us_trading_days=COINTEGRATION_TEST_PERIOD_IN_TRADING_DAYS,
     )
     beta_calculation_start_date = subtract_n_us_trading_days_from_date(
-        simulation_start_date,
+        backtest_start_date,
         offset_in_us_trading_days=BETA_ESTIMATION_PERIOD_IN_TRADING_DAYS,
     )
     all_tickers_price_history_df = get_all_tickers_price_history_df(
         beta_calculation_start_date, cointegration_test_end_date
     )
-    pairs_for_portfolio_simulation = get_pairs_for_portfolio_simulation(
+    pairs_to_backtest = get_pairs_to_backtest(
         cointegration_test_start_date,
         cointegration_test_end_date,
         all_tickers_price_history_df,
         num_pairs_in_portfolio=NUM_PAIRS_IN_PORTFOLIO,
     )
-    pairs_for_portfolio_simulation = parse_pair_df()
-    simulation_returns_by_ticker_df = get_simulated_returns_by_portfolio_tickers_df(
-        simulation_start_date,
-        simulation_end_date,
-        pairs_for_portfolio_simulation,
+    pairs_to_backtest = parse_pair_df()
+    backtest_returns_by_ticker_df = get_backtest_returns_by_ticker_df(
+        backtest_start_date,
+        backtest_end_date,
+        pairs_to_backtest,
         all_tickers_price_history_df,
         spread_z_score_rolling_window_in_trading_days=SPREAD_Z_SCORE_ROLLING_WINDOW_IN_TRADING_DAYS,
     )

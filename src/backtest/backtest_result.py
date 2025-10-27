@@ -3,7 +3,7 @@ from typing import NamedTuple
 
 
 # TODO implement calculations for commented out attributes
-class SimulationResult(NamedTuple):
+class BacktestResult(NamedTuple):
     annualized_return: float
     annualized_volatility: float
     annualized_sharpe_ratio: float

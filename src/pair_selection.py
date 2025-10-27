@@ -11,8 +11,6 @@ from src.time_series_utils import (
     ONE_YEAR_IN_TRADING_DAYS,
 )
 from src.data_loader import (
-    get_all_tickers_price_history_df,
-    create_ticker_to_sector_map,
     get_benchmark_price_history_df,
 )
 from src.statistical_utils import (
@@ -22,7 +20,7 @@ from src.statistical_utils import (
     is_price_series_integrated_of_order_one,
     is_pair_engle_granger_cointegrated,
     is_pair_johansen_cointegrated,
-    create_returns_from_price_history,
+    create_daily_returns,
 )
 
 
@@ -186,7 +184,7 @@ def create_ticker_to_beta_map(
             all_tickers_price_history_df, benchmark_price_history_df
         )
     )
-    ticker_and_benchmark_returns_df = create_returns_from_price_history(
+    ticker_and_benchmark_returns_df = create_daily_returns(
         all_tickers_and_benchmark_price_history_df
     )
     for ticker in all_tickers_price_history_df.columns:
@@ -257,7 +255,7 @@ def filter_cointegrated_pairs_by_hurst_exponent(
     return pairs_sorted_by_hurst_exponent[: num_pairs_in_portfolio + 1]
 
 
-def get_pairs_for_portfolio_simulation(
+def get_pairs_to_backtest(
     start_date_for_cointegration_test_period: datetime,
     end_date_for_cointegration_test_period: datetime,
     all_tickers_price_history_df: pd.DataFrame,

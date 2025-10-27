@@ -3,7 +3,7 @@ from typing import NamedTuple
 import pandas as pd
 import numpy as np
 from typing import Mapping, Collection
-from src.simulation.simulation import get_simulated_returns_by_portfolio_tickers_df
+from src.backtest.backtest import get_backtest_returns_by_ticker_df
 
 PORTFOLIO_DAILY_RETURN_COLUMN_NAME = "portfolio_daily_return"
 _ANNUALIZATION_FACTOR_IN_TRADING_DAYS = 252
@@ -152,17 +152,17 @@ def calculate_annualized_sharpe_ratio(
 
 
 def get_portfolio_performance_result(
-    start_date_for_simulation: datetime,
-    end_date_for_simulation: datetime,
-    pairs_for_portfolio_simulation: Collection[tuple[str, str, float]],
+    backtest_start_date: datetime,
+    backtest_end_date: datetime,
+    pairs_to_backtest: Collection[tuple[str, str, float]],
     all_tickers_price_history_df: pd.DataFrame,
     *,
     spread_z_score_rolling_window_in_trading_days: int,
 ) -> Mapping[str, float]:
-    returns_by_ticker_df = get_simulated_returns_by_portfolio_tickers_df(
-        start_date_for_simulation,
-        end_date_for_simulation,
-        pairs_for_portfolio_simulation,
+    returns_by_ticker_df = get_backtest_returns_by_ticker_df(
+        backtest_start_date,
+        backtest_end_date,
+        pairs_to_backtest,
         all_tickers_price_history_df,
         spread_z_score_rolling_window_in_trading_days,
     )

@@ -34,7 +34,7 @@ def calculate_regression_coefficient(x_series: pd.Series, y_series: pd.Series) -
     return float(slope)
 
 
-def create_returns_from_price_history(price_history_df: pd.DataFrame) -> float:
+def create_daily_returns(price_history_df: pd.DataFrame) -> float:
     pair_price_returns_df = price_history_df.pct_change() * 100
     return pair_price_returns_df
 
@@ -129,7 +129,7 @@ def calculate_trailing_zscore(
 
 
 def get_pair_spread_rolling_z_score_series(
-    start_date_for_simulation_adj_for_z_score_rolling_window: datetime,
+    backtest_start_date_adj_for_z_score_rolling_window: datetime,
     spread_rolling_z_score_series_end_date: datetime,
     pair_price_history_df: pd.DataFrame,
     *,
@@ -137,7 +137,7 @@ def get_pair_spread_rolling_z_score_series(
 ) -> pd.Series:
     spread_series = get_pair_spread_series(
         pair_price_history_df,
-        start_date_for_simulation_adj_for_z_score_rolling_window,
+        backtest_start_date_adj_for_z_score_rolling_window,
         spread_rolling_z_score_series_end_date,
     )
     spread_rolling_mean_series = spread_series.rolling(
@@ -150,7 +150,7 @@ def get_pair_spread_rolling_z_score_series(
         spread_series - spread_rolling_mean_series
     ) / spread_rolling_std_series
     spread_rolling_z_score_series_start_date = add_n_us_trading_days_to_date(
-        start_date_for_simulation_adj_for_z_score_rolling_window,
+        backtest_start_date_adj_for_z_score_rolling_window,
         offset_in_us_trading_days=z_score_window_in_trading_days,
     )
     return filter_price_history_series_or_df_by_date_inclusive(

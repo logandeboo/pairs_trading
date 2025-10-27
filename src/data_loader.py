@@ -9,6 +9,18 @@ from src.time_series_utils import filter_price_history_series_or_df_by_date_incl
 _TICKER_COLUMN_NAME = "ticker"
 
 
+def get_path_to_stock_price_history(ticker: str) -> Path:
+    path_to_price_history_dir = Path("data/adj_close_price_data")
+    return path_to_price_history_dir / f"{ticker}.csv"
+
+def get_daily_price_history_df(ticker: str) -> pd.DataFrame:
+    path_to_stock_price_history = get_path_to_stock_price_history(ticker)
+    try:
+        return pd.read_csv(path_to_stock_price_history, index_col=0, parse_dates=True)
+    except FileNotFoundError:
+        print(f"No price data found for ticker: {ticker}")
+        return pd.DataFrame()
+
 def get_all_tickers_price_history_df(
     start_date: datetime, end_date: datetime
 ) -> pd.DataFrame:

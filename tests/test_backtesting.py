@@ -1,17 +1,18 @@
 import pandas as pd
-from src.simulation import (
-    calculate_number_of_trades_per_day,
-    calculate_daily_return_on_employed_capital_after_t_costs,
+from src.backtest.backtest import (
+    get_daily_pair_trade_signals_df,
+)
+from src.performance import (
     calculate_daily_portfolio_return_before_t_costs,
-    get_pair_trade_signals_by_ticker_df,
+    calculate_number_of_trades_per_day,
     DAILY_TRANSACTION_COUNT_COLUMN_NAME,
     PORTFOLIO_DAILY_RETURN_AFTER_T_COST_COLUMN_NAME,
 )
 
 
 class TestCreateTradeSignalsFromSpreadRollingZScore:
-
-    def test_create_trade_signals_from_z_scored_spread(self) -> None:
+    # TODO this test will fail unless _EXIT_THRESHOLD_ABSOLUTE_TOLERANCE = 0.1
+    def test_get_daily_pair_trade_signals_df(self) -> None:
         ticker_one = "KVUE"
         ticker_two = "WVE"
         z_scored_spread_series = pd.read_csv(
@@ -20,16 +21,27 @@ class TestCreateTradeSignalsFromSpreadRollingZScore:
             parse_dates=True,
         ).squeeze("columns")
 
-        actual_df = get_pair_trade_signals_by_ticker_df(
+        actual_df = get_daily_pair_trade_signals_df(
             ticker_one,
             ticker_two,
             z_scored_spread_series,
-            _EXIT_THRESHOLD_ABSOLUTE_TOLERANCE=0.1,
         )
         expected_df = pd.read_csv(
             "tests/test_data/KVUE_WVE_trade_signals.csv", index_col=0, parse_dates=True
         )
         pd.testing.assert_frame_equal(actual_df, expected_df)
+
+    def test_get_daily_pair_trade_signals_df_trade_on_day_zero(self) -> None:
+        rolling_z_score_series = pd.Series(
+            [3, 3, 2, 1, 0],
+            index=pd.date_range(start="2025-10-25", periods=5, freq="D"),
+        )
+        ticker_one = "ABC"
+        ticker_two = "DEF"
+        actual_df = get_daily_pair_trade_signals_df(
+            ticker_one, ticker_two, rolling_z_score_series
+        )
+        breakpoint()
 
 
 class TestCalculateNumberOfTradesPerDay:
