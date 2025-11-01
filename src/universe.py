@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pickle
 from src.stock import Stock
+from src.pair import Pair
 from src.data_loader import (
     get_daily_price_history_df,
 )
@@ -11,7 +12,6 @@ from src.statistical_utils import create_daily_returns
 
 class UniverseName(Enum):
     USA = "USA"
-
 
 # TODO this should be replaced with a larger set of US tickers
 # survivorship bias within the universe seems unavoidable without
@@ -47,6 +47,9 @@ def get_all_stocks_in_universe(universe_name: UniverseName) -> Collection[Stock]
         for ticker in universe_tickers
     ]
 
+def get_all_pairs_in_universe(universe_name: UniverseName) -> Collection[Pair]:
+    pass
+
 class Universe:
 
     def __init__(
@@ -57,3 +60,4 @@ class Universe:
         self.stocks = get_all_stocks_in_universe(
             name,
         )
+        get_universe_ticker_to_sector_map()

@@ -1,6 +1,6 @@
 import pandas as pd
 from datetime import datetime
-from typing import Mapping, Union
+from typing import Union
 from pandas.tseries.holiday import USFederalHolidayCalendar, GoodFriday
 from pandas.tseries.offsets import CustomBusinessDay
 

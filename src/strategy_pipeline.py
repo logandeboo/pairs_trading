@@ -7,7 +7,6 @@ from src.time_series_utils import (
 )
 from src.data_loader import get_all_tickers_price_history_df
 from src.backtest.backtest import get_backtest_returns_by_ticker_df
-from src.performance import get_portfolio_performance_result
 
 
 BACKTEST_PERIOD_IN_TRADING_DAYS = ONE_YEAR_IN_TRADING_DAYS

@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from typing import Collection, Mapping, NamedTuple
+from typing import Collection, Sequence
 from src.pair_selection import (
     filter_price_history_df_by_pair_and_date,
 )
@@ -11,27 +11,45 @@ from src.statistical_utils import (
 )
 from src.time_series_utils import (
     subtract_n_us_trading_days_from_date,
-    add_n_us_trading_days_to_date,
     ONE_DAY_IN_TRADING_DAYS,
 )
 from src.backtest.backtest_config import BacktestConfig
 from src.backtest.backtest_result import BacktestResult
+from src.time_series_utils import (
+    add_n_us_trading_days_to_date,
+    subtract_n_us_trading_days_from_date
+)
+from src.pair_selection import get_pairs_to_backtest
+
+
 
 _TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
-_ENTRANCE_THRESHOLD_IN_STANDARD_DEVIATIONS = 2
-_EXIT_THRESHOLD_IN_STANDARD_DEVIATIONS = 0
-_EXIT_THRESHOLD_ABSOLUTE_TOLERANCE = 0.1
-_TICKER_LONG_POSITION_FLAG = 1
-_TICKER_SHORT_POSITION_FLAG = -1
+_LONG_POSITION_FLAG = 1
+_SHORT_POSITION_FLAG = -1
 
 class Backtest:
 
     def __init__(self, backtest_config: BacktestConfig) -> None:
         self.backtest_config = backtest_config
+    
+    def get_rebalance_dates(self, backtest_config: BacktestConfig) -> Sequence[datetime]:
+        all_rebalance_dates = []
+        rebalance_date = backtest_config.start_date
+        while rebalance_date < backtest_config.end_date:
+            all_rebalance_dates.append(rebalance_date)
+            rebalance_date = add_n_us_trading_days_to_date(
+                rebalance_date,
+                backtest_config.rebalance_freq_in_trading_days
+            )
+        return all_rebalance_dates
+        
 
-    # TODO most of the code that should go here exists already
     def run(self) -> BacktestResult:
-        raise NotImplementedError
+        rebalance_dates = self.get_rebalance_dates(self.backtest_config)
+        for rebalance_date in rebalance_dates:
+            pairs = get_pairs_to_backtest(self.backtest_config, rebalance_date)
+        
+
 
 
 # NOTE consider triggering condition as the spread converges back
@@ -82,17 +100,17 @@ def enter_position_at_current_date(
 
     if is_long_ticker_one:
         pair_trade_signals_by_date_df.loc[date, ticker_one_trade_side_column_name] = (
-            _TICKER_LONG_POSITION_FLAG
+            _LONG_POSITION_FLAG
         )
         pair_trade_signals_by_date_df.loc[date, ticker_two_trade_side_column_name] = (
-            _TICKER_SHORT_POSITION_FLAG
+            _SHORT_POSITION_FLAG
         )
     else:
         pair_trade_signals_by_date_df.loc[date, ticker_one_trade_side_column_name] = (
-            _TICKER_SHORT_POSITION_FLAG
+            _SHORT_POSITION_FLAG
         )
         pair_trade_signals_by_date_df.loc[date, ticker_two_trade_side_column_name] = (
-            _TICKER_LONG_POSITION_FLAG
+            _LONG_POSITION_FLAG
         )
     return pair_trade_signals_by_date_df
 
@@ -102,8 +120,8 @@ def set_short_spread_trade_positions_for_date(
     signal_date: datetime,
 ) -> pd.DataFrame:
     pair_trade_signals_by_date_df.loc[signal_date] = [
-        _TICKER_LONG_POSITION_FLAG,
-        _TICKER_SHORT_POSITION_FLAG,
+        _LONG_POSITION_FLAG,
+        _SHORT_POSITION_FLAG,
     ]
 
 
@@ -112,8 +130,8 @@ def set_long_spread_trade_positions_for_date(
     signal_date: datetime,
 ) -> pd.DataFrame:
     pair_trade_signals_by_date_df.loc[signal_date] = [
-        _TICKER_SHORT_POSITION_FLAG,
-        _TICKER_LONG_POSITION_FLAG,
+        _SHORT_POSITION_FLAG,
+        _LONG_POSITION_FLAG,
     ]
 
 

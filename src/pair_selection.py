@@ -3,13 +3,16 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 from itertools import combinations
-from typing import Sequence, Mapping, Union, Collection
-
+from typing import Sequence, Mapping, Collection
+from src.pair import Pair
+from src.backtest.backtest_config import BacktestConfig
 from src.time_series_utils import (
     filter_price_history_series_or_df_by_date_inclusive,
     filter_price_history_df_by_pair_and_date,
     ONE_YEAR_IN_TRADING_DAYS,
 )
+from src.stock import Stock
+from src.universe import Universe
 from src.data_loader import (
     get_benchmark_price_history_df,
 )
@@ -72,11 +75,13 @@ def is_pair_cointegrated(
         print(e)
         return False
 
+# TODO can do this more elegantly
+def get_all_pairs_in_universe(
+    all_stocks_in_universe: Collection[Stock],
+) -> Collection[Pair]:
+    all_pairs_in_universe = list(combinations(all_stocks_in_universe, 2))
+    return [Pair(stock_one, stock_two) for stock_one, stock_two in all_pairs_in_universe]
 
-def create_ticker_pairs(
-    all_tickers_price_history_df: pd.DataFrame,
-) -> list[tuple]:
-    return list(combinations(all_tickers_price_history_df.columns, 2))
 
 
 # TODO this probably won't need to write to disk once full walk-forward model is implemented
@@ -224,15 +229,15 @@ def filter_pairs_for_common_beta(
     return pairs_with_common_beta
 
 
-def filter_pairs_for_common_sector(
-    pairs: Collection[tuple[str, str]],
-) -> Collection[tuple[str, str]]:
-    pairs_with_common_sector = []
-    ticker_to_sector_map = create_ticker_to_sector_map()
-    for ticker_one, ticker_two in pairs:
-        if are_tickers_in_same_sector(ticker_one, ticker_two, ticker_to_sector_map):
-            pairs_with_common_sector.append((ticker_one, ticker_two))
-    return pairs_with_common_sector
+# def filter_pairs_for_common_sector(
+#     pairs: Collection[Pair],
+# ) -> Collection[Pair]:
+#     pairs_with_common_sector = []
+#     ticker_to_sector_map = create_ticker_to_sector_map()
+#     for ticker_one, ticker_two in pairs:
+#         if are_tickers_in_same_sector(ticker_one, ticker_two, ticker_to_sector_map):
+#             pairs_with_common_sector.append((ticker_one, ticker_two))
+#     return pairs_with_common_sector
 
 
 def join_ticker_and_benchmark_price_history_dfs(
@@ -285,6 +290,39 @@ def get_pairs_to_backtest(
     return filter_cointegrated_pairs_by_hurst_exponent(
         cointegrated_pairs_with_hurst_exponent, num_pairs_in_portfolio
     )
+
+def filter_pairs_by_common_sector(pairs: Collection[Pair]) -> Collection[Pair]:
+    return [
+        pair for pair in pairs if pair.stock_one.sector == pair.stock_two.sector
+    ]
+
+
+
+
+def filter_pairs_by_risk_factor_exposure(
+    backtest_config: BacktestConfig,
+    rebalance_date: datetime,
+    pairs: Collection[Pair]
+) -> Collection[Pair]:
+    for risk_factor in backtest_config.risk_factor_to_similarity_threshold.keys():
+        raise NotImplementedError
+
+    
+
+
+
+def get_pairs_to_backtest(
+    backtest_config: BacktestConfig,
+    rebalance_date: datetime
+) -> Collection[Pair]:
+    all_pairs_in_universe = get_all_pairs_in_universe(backtest_config.universe)
+    pairs_with_common_sector = filter_pairs_by_common_sector(all_pairs_in_universe)
+    pairs_with_common_risk_factors = filter_pairs_by_risk_factor_exposure(
+        backtest_config,
+        rebalance_date,
+        pairs_with_common_sector
+    )
+
 
 
 # if __name__ == "__main__":
