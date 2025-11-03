@@ -1,6 +1,6 @@
 import pandas as pd
 from datetime import datetime
-from typing import Union
+from typing import Union, Sequence
 from pandas.tseries.holiday import USFederalHolidayCalendar, GoodFriday
 from pandas.tseries.offsets import CustomBusinessDay
 
@@ -58,3 +58,18 @@ def filter_price_history_df_by_pair_and_date(
     return filter_price_history_series_or_df_by_date_inclusive(
         start_date, end_date, pair_price_history_df
     ).dropna()
+
+def get_rebalance_dates(
+    start_date: datetime,
+    end_date: datetime,
+    rebalance_freq_in_trading_days: int,
+) -> Sequence[datetime]:
+    all_rebalance_dates = []
+    date = start_date
+    while date < end_date:
+        all_rebalance_dates.append(date)
+        date = add_n_us_trading_days_to_date(
+            date,
+            rebalance_freq_in_trading_days
+        )
+    return all_rebalance_dates

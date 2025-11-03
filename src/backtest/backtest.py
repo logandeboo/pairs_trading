@@ -20,7 +20,7 @@ from src.time_series_utils import (
     subtract_n_us_trading_days_from_date
 )
 from src.pair_selection import get_pairs_to_backtest
-
+from src.time_series_utils import get_rebalance_dates
 
 
 _TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
@@ -32,23 +32,15 @@ class Backtest:
     def __init__(self, backtest_config: BacktestConfig) -> None:
         self.backtest_config = backtest_config
     
-    def get_rebalance_dates(self, backtest_config: BacktestConfig) -> Sequence[datetime]:
-        all_rebalance_dates = []
-        rebalance_date = backtest_config.start_date
-        while rebalance_date < backtest_config.end_date:
-            all_rebalance_dates.append(rebalance_date)
-            rebalance_date = add_n_us_trading_days_to_date(
-                rebalance_date,
-                backtest_config.rebalance_freq_in_trading_days
-            )
-        return all_rebalance_dates
         
 
     def run(self) -> BacktestResult:
-        rebalance_dates = self.get_rebalance_dates(self.backtest_config)
+        rebalance_dates = self.get_rebalance_dates(
+            self.backtest_config.start_date,
+            self.backtest_config.end_date,
+            self.backtest_config.rebalance_freq_in_trading_days)
         for rebalance_date in rebalance_dates:
             pairs = get_pairs_to_backtest(self.backtest_config, rebalance_date)
-        
 
 
 

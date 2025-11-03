@@ -1,7 +1,9 @@
 from src.universe import Universe
 from datetime import datetime
-from typing import NamedTuple, Mapping
+from typing import NamedTuple, Mapping, Sequence
 from src.risk.risk_factor import RiskFactor
+from src.time_series_utils import get_rebalance_dates
+
 
 class BacktestConfig(NamedTuple):
     universe: Universe
