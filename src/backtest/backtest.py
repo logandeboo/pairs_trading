@@ -32,13 +32,11 @@ class Backtest:
     def __init__(self, backtest_config: BacktestConfig) -> None:
         self.backtest_config = backtest_config
     
-        
-
     def run(self) -> BacktestResult:
-        rebalance_dates = self.get_rebalance_dates(
+        rebalance_dates = get_rebalance_dates(
             self.backtest_config.start_date,
             self.backtest_config.end_date,
-            self.backtest_config.rebalance_freq_in_trading_days)
+            self.backtest_config.rebalance_freq_in_us_trading_days)
         for rebalance_date in rebalance_dates:
             pairs = get_pairs_to_backtest(self.backtest_config, rebalance_date)
 

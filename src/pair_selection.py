@@ -9,10 +9,10 @@ from src.backtest.backtest_config import BacktestConfig
 from src.time_series_utils import (
     filter_price_history_series_or_df_by_date_inclusive,
     filter_price_history_df_by_pair_and_date,
+    subtract_n_us_trading_days_from_date,
     ONE_YEAR_IN_TRADING_DAYS,
 )
 from src.stock import Stock
-from src.universe import Universe
 from src.data_loader import (
     get_benchmark_price_history_df,
 )
@@ -24,6 +24,7 @@ from src.statistical_utils import (
     is_pair_engle_granger_cointegrated,
     is_pair_johansen_cointegrated,
     create_daily_returns,
+    get_stock_exposure_to_risk_factor
 )
 
 
@@ -75,7 +76,7 @@ def is_pair_cointegrated(
         print(e)
         return False
 
-# TODO can do this more elegantly
+# TODO should do this more elegantly
 def get_all_pairs_in_universe(
     all_stocks_in_universe: Collection[Stock],
 ) -> Collection[Pair]:
@@ -304,8 +305,27 @@ def filter_pairs_by_risk_factor_exposure(
     rebalance_date: datetime,
     pairs: Collection[Pair]
 ) -> Collection[Pair]:
-    for risk_factor in backtest_config.risk_factor_to_similarity_threshold.keys():
-        raise NotImplementedError
+    pairs_filtered_by_risk_factor_exposure = []
+    risk_factor_exposure_start_date = subtract_n_us_trading_days_from_date(
+        rebalance_date,
+        offset_in_us_trading_days=backtest_config.risk_factor_exposure_period_in_us_trading_days
+    )
+    for pair in pairs:
+        for risk_factor in backtest_config.risk_factor_to_similarity_threshold.keys():
+            stock_one_exposure_to_risk_factor = get_stock_exposure_to_risk_factor(
+                risk_factor_exposure_start_date,
+                rebalance_date,
+                pair.stock_one,
+                risk_factor
+            )
+            stock_two_exposure_to_risk_factor = get_stock_exposure_to_risk_factor(
+                risk_factor_exposure_start_date,
+                rebalance_date,
+                pair.stock_two,
+                risk_factor
+            )
+            risk_factor_exposure_abs_dif = abs(stock_one_exposure_to_risk_factor - stock_two_exposure_to_risk_factor)
+        
 
     
 
@@ -315,7 +335,7 @@ def get_pairs_to_backtest(
     backtest_config: BacktestConfig,
     rebalance_date: datetime
 ) -> Collection[Pair]:
-    all_pairs_in_universe = get_all_pairs_in_universe(backtest_config.universe)
+    all_pairs_in_universe = get_all_pairs_in_universe(backtest_config.universe.stocks)
     pairs_with_common_sector = filter_pairs_by_common_sector(all_pairs_in_universe)
     pairs_with_common_risk_factors = filter_pairs_by_risk_factor_exposure(
         backtest_config,

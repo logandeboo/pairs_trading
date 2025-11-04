@@ -47,9 +47,6 @@ def get_all_stocks_in_universe(universe_name: UniverseName) -> Collection[Stock]
         for ticker in universe_tickers
     ]
 
-def get_all_pairs_in_universe(universe_name: UniverseName) -> Collection[Pair]:
-    pass
-
 class Universe:
 
     def __init__(
@@ -60,4 +57,4 @@ class Universe:
         self.stocks = get_all_stocks_in_universe(
             name,
         )
-        get_universe_ticker_to_sector_map()
+        self.ticker_to_sector_map = get_universe_ticker_to_sector_map(name)
