@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pandas as pd
 from datetime import datetime
 import numpy as np
@@ -200,8 +201,7 @@ def get_stock_exposure_to_risk_factor(
         stock
     )
     joined_df = risk_factor.returns_df.join(excess_stock_returns_df, how='inner')
-    risk_factor_exposure = calculate_regression_coefficient(
+    return calculate_regression_coefficient(
         joined_df.iloc[:,0],
         joined_df.iloc[:,1],
     )
-    breakpoint()

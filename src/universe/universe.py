@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pickle
 from src.stock import Stock
-from src.pair import Pair
+from src.risk.risk_factor import RiskFactor
 from src.data_loader import (
     get_daily_price_history_df,
 )
@@ -29,20 +29,22 @@ def get_universe_ticker_to_sector_map(universe_name: UniverseName) -> Mapping[st
     with open(path_to_ticker_to_sector_map, "rb") as ticker_to_sector_map_file:
         return pickle.load(ticker_to_sector_map_file)
 
-def get_universe_tickers(universe_name: UniverseName) -> list[tuple[str, str]]:
+def get_all_tickers_in_universe(universe_name: UniverseName) -> list[tuple[str, str]]:
     path_to_ticker_list = _UNIVERSE_NAME_TO_CONSITUENTS_FILE_PATH[universe_name]
     ticker_df = pd.read_csv(path_to_ticker_list)
     return ticker_df.squeeze().to_list()
 
+
+
 def get_all_stocks_in_universe(universe_name: UniverseName) -> Collection[Stock]:
     ticker_to_sector_map = get_universe_ticker_to_sector_map(universe_name)
-    universe_tickers = get_universe_tickers(universe_name)
+    universe_tickers = get_all_tickers_in_universe(universe_name)
     return [
         Stock(
             ticker=ticker,
             sector=ticker_to_sector_map[ticker],
             daily_price_history_df=(price_history_df := get_daily_price_history_df(ticker)),
-            daily_returns_df=create_daily_returns(price_history_df),
+            daily_returns_df=(daily_returns_df := create_daily_returns(price_history_df)),
         )
         for ticker in universe_tickers
     ]

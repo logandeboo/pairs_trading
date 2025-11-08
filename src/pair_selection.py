@@ -26,6 +26,19 @@ from src.statistical_utils import (
     create_daily_returns,
     get_stock_exposure_to_risk_factor
 )
+from src.risk.risk_factor import RiskFactor
+
+def are_risk_factors_similar(
+    ticker_one_risk_factor_exposure: float,
+    ticker_two_risk_factor_exposure: float,
+    absolute_difference_threshold: float,
+) -> bool:
+    are_betas_similar = np.isclose(
+        ticker_one_risk_factor_exposure,
+        ticker_two_risk_factor_exposure,
+        atol=beta_absolute_difference_threshold,
+        rtol=relative_tolerance,
+    )
 
 
 def are_stock_betas_similar(
@@ -77,7 +90,7 @@ def is_pair_cointegrated(
         return False
 
 # TODO should do this more elegantly
-def get_all_pairs_in_universe(
+def get_tradable_pairs_for_backtest_dates(
     all_stocks_in_universe: Collection[Stock],
 ) -> Collection[Pair]:
     all_pairs_in_universe = list(combinations(all_stocks_in_universe, 2))
@@ -296,9 +309,31 @@ def filter_pairs_by_common_sector(pairs: Collection[Pair]) -> Collection[Pair]:
     return [
         pair for pair in pairs if pair.stock_one.sector == pair.stock_two.sector
     ]
+    
 
 
-
+def get_ticker_to_risk_factor_exposures(
+    backtest_config: BacktestConfig,
+    rebalance_date: datetime,
+    risk_factors: Collection[RiskFactor],
+) -> Mapping[Stock, Mapping[RiskFactor, float]]:
+    stock_to_risk_factor_exposures = {}
+    risk_factor_exposure_start_date = subtract_n_us_trading_days_from_date(
+        rebalance_date,
+        offset_in_us_trading_days=backtest_config.risk_factor_exposure_period_in_us_trading_days
+    )
+    for stock in backtest_config.universe.stocks:
+        stock_to_risk_factor_exposures[stock] = {
+            risk_factor: get_stock_exposure_to_risk_factor(
+                risk_factor_exposure_start_date,
+                rebalance_date,
+                stock,
+                risk_factor
+            )
+            for risk_factor in risk_factors
+        }
+    return stock_to_risk_factor_exposures
+            
 
 def filter_pairs_by_risk_factor_exposure(
     backtest_config: BacktestConfig,
@@ -306,36 +341,23 @@ def filter_pairs_by_risk_factor_exposure(
     pairs: Collection[Pair]
 ) -> Collection[Pair]:
     pairs_filtered_by_risk_factor_exposure = []
-    risk_factor_exposure_start_date = subtract_n_us_trading_days_from_date(
+    ticker_to_risk_factor_exposure = get_ticker_to_risk_factor_exposures(
+        backtest_config,
         rebalance_date,
-        offset_in_us_trading_days=backtest_config.risk_factor_exposure_period_in_us_trading_days
+        backtest_config.risk_factor_to_similarity_threshold.keys(),
     )
-    for pair in pairs:
-        for risk_factor in backtest_config.risk_factor_to_similarity_threshold.keys():
-            stock_one_exposure_to_risk_factor = get_stock_exposure_to_risk_factor(
-                risk_factor_exposure_start_date,
-                rebalance_date,
-                pair.stock_one,
-                risk_factor
-            )
-            stock_two_exposure_to_risk_factor = get_stock_exposure_to_risk_factor(
-                risk_factor_exposure_start_date,
-                rebalance_date,
-                pair.stock_two,
-                risk_factor
-            )
-            risk_factor_exposure_abs_dif = abs(stock_one_exposure_to_risk_factor - stock_two_exposure_to_risk_factor)
-        
-
+    breakpoint()
     
 
 
-
+# TODO you were going to filter out pairs with ineligible dates inside the
+# get_tradable_pairs_for_backtest_dates function. This is so downstream functions
+# like filter_pairs_by_risk_factor_exposure can assume stocks have valid data
 def get_pairs_to_backtest(
     backtest_config: BacktestConfig,
     rebalance_date: datetime
 ) -> Collection[Pair]:
-    all_pairs_in_universe = get_all_pairs_in_universe(backtest_config.universe.stocks)
+    all_pairs_in_universe = get_tradable_pairs_for_backtest_dates(backtest_config.universe.stocks)
     pairs_with_common_sector = filter_pairs_by_common_sector(all_pairs_in_universe)
     pairs_with_common_risk_factors = filter_pairs_by_risk_factor_exposure(
         backtest_config,
