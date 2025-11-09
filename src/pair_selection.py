@@ -7,7 +7,7 @@ from typing import Sequence, Mapping, Collection
 from src.pair import Pair
 from src.backtest.backtest_config import BacktestConfig
 from src.time_series_utils import (
-    filter_price_history_series_or_df_by_date_inclusive,
+    filter_series_or_df_by_dates,
     filter_price_history_df_by_pair_and_date,
     subtract_n_us_trading_days_from_date,
     ONE_YEAR_IN_TRADING_DAYS,
@@ -24,9 +24,10 @@ from src.statistical_utils import (
     is_pair_engle_granger_cointegrated,
     is_pair_johansen_cointegrated,
     create_daily_returns,
-    get_stock_exposure_to_risk_factor
+    get_stock_exposure_to_risk_factor,
 )
 from src.risk.risk_factor import RiskFactor
+
 
 def are_risk_factors_similar(
     ticker_one_risk_factor_exposure: float,
@@ -89,13 +90,95 @@ def is_pair_cointegrated(
         print(e)
         return False
 
-# TODO should do this more elegantly
-def get_tradable_pairs_for_backtest_dates(
-    all_stocks_in_universe: Collection[Stock],
-) -> Collection[Pair]:
-    all_pairs_in_universe = list(combinations(all_stocks_in_universe, 2))
-    return [Pair(stock_one, stock_two) for stock_one, stock_two in all_pairs_in_universe]
 
+def is_enough_stock_returns_for_risk_exposure_period(
+    backtest_config: BacktestConfig,
+    rebalance_date: datetime,
+    stock_returns_df: pd.DataFrame,
+) -> bool:
+    risk_factor_exposure_start_date = subtract_n_us_trading_days_from_date(
+        rebalance_date,
+        offset_in_us_trading_days=backtest_config.risk_factor_exposure_period_in_us_trading_days,
+    )
+    filtered_stock_returns_df = filter_series_or_df_by_dates(
+        risk_factor_exposure_start_date, rebalance_date, stock_returns_df
+    )
+    risk_factor_returns_df = next(
+        iter(backtest_config.risk_factor_to_similarity_threshold)
+    ).returns_df
+    filtered_risk_factor_returns_df = filter_series_or_df_by_dates(
+        risk_factor_exposure_start_date, rebalance_date, risk_factor_returns_df
+    )
+    risk_factor_and_stock_returns_df = filtered_stock_returns_df.join(
+        filtered_risk_factor_returns_df, how="inner"
+    )
+    return (
+        len(risk_factor_and_stock_returns_df)
+        >= backtest_config.risk_factor_exposure_period_in_us_trading_days
+    )
+
+
+def is_enough_stock_returns_for_cointegration_period(
+    backtest_config: BacktestConfig,
+    rebalance_date: datetime,
+    stock_returns_df: pd.DataFrame,
+) -> bool:
+    cointegration_period_start_date = subtract_n_us_trading_days_from_date(
+        rebalance_date,
+        offset_in_us_trading_days=backtest_config.cointegration_test_period_in_trading_days,
+    )
+    filtered_stock_returns_df = filter_series_or_df_by_dates(
+        cointegration_period_start_date, rebalance_date, stock_returns_df
+    )
+    risk_factor_returns_df = next(
+        iter(backtest_config.risk_factor_to_similarity_threshold)
+    ).returns_df
+    filtered_risk_factor_returns_df = filter_series_or_df_by_dates(
+        cointegration_period_start_date, rebalance_date, risk_factor_returns_df
+    )
+    risk_factor_and_stock_returns_df = filtered_stock_returns_df.join(
+        filtered_risk_factor_returns_df, how="inner"
+    )
+    return (
+        len(risk_factor_and_stock_returns_df)
+        >= backtest_config.cointegration_test_period_in_trading_days
+    )
+
+
+def is_enough_returns_data_for_backtest_period(
+    backtest_config: BacktestConfig,
+    rebalance_date: datetime,
+    stock_returns_df: pd.DataFrame,
+) -> bool:
+    return is_enough_stock_returns_for_cointegration_period(
+        backtest_config, rebalance_date, stock_returns_df
+    ) and is_enough_stock_returns_for_risk_exposure_period(
+        backtest_config, rebalance_date, stock_returns_df
+    )
+
+
+def get_stocks_with_returns_for_backtest_period(
+    backtest_config: BacktestConfig,
+    rebalance_date: datetime,
+) -> Collection[Pair]:
+    return [
+        stock
+        for stock in backtest_config.universe.stocks
+        if is_enough_returns_data_for_backtest_period(
+            backtest_config, rebalance_date, stock.daily_price_history_df
+        )
+    ]
+
+
+def get_tradable_pairs_for_backtest_period(
+    backtest_config: BacktestConfig,
+    rebalance_date: datetime,
+) -> Collection[Pair]:
+    stocks_with_returns_for_backtest_period = get_stocks_with_returns_for_backtest_period(backtest_config, rebalance_date)
+    pairs = list(combinations(stocks_with_returns_for_backtest_period, 2))
+    return [
+        Pair(stock_one, stock_two) for stock_one, stock_two in pairs
+    ]
 
 
 # TODO this probably won't need to write to disk once full walk-forward model is implemented
@@ -106,12 +189,10 @@ def filter_pairs_for_cointegration(
     tickers_price_history_df: pd.DataFrame,
 ) -> Sequence[tuple[str, str]]:
     valid_pairs = []
-    filtered_tickers_price_history_df = (
-        filter_price_history_series_or_df_by_date_inclusive(
-            start_date_for_cointegration_period,
-            end_date_for_cointegration_period,
-            tickers_price_history_df,
-        )
+    filtered_tickers_price_history_df = filter_series_or_df_by_dates(
+        start_date_for_cointegration_period,
+        end_date_for_cointegration_period,
+        tickers_price_history_df,
     )
     for i, (ticker_one, ticker_two) in enumerate(pairs_with_common_sector_and_beta):
         print(i)
@@ -172,10 +253,10 @@ def filter_price_history_df_by_pairs(
 
 
 # TODO benchmark constituents are currently not PIT so there is survivorship bias
-def inner_join_series_on_date_index(
-    series_one: pd.Series, series_two: pd.Series
+def inner_join_dfs_on_date_index(
+    left_df: pd.DataFrame, right_df: pd.DataFrame
 ) -> pd.DataFrame:
-    return pd.concat([series_one, series_two], axis=1, join="inner").dropna()
+    return pd.concat([left_df, right_df], axis=1, join="inner")
 
 
 def has_enough_returns_to_estimate_beta(
@@ -305,11 +386,9 @@ def get_pairs_to_backtest(
         cointegrated_pairs_with_hurst_exponent, num_pairs_in_portfolio
     )
 
+
 def filter_pairs_by_common_sector(pairs: Collection[Pair]) -> Collection[Pair]:
-    return [
-        pair for pair in pairs if pair.stock_one.sector == pair.stock_two.sector
-    ]
-    
+    return [pair for pair in pairs if pair.stock_one.sector == pair.stock_two.sector]
 
 
 def get_ticker_to_risk_factor_exposures(
@@ -320,25 +399,20 @@ def get_ticker_to_risk_factor_exposures(
     stock_to_risk_factor_exposures = {}
     risk_factor_exposure_start_date = subtract_n_us_trading_days_from_date(
         rebalance_date,
-        offset_in_us_trading_days=backtest_config.risk_factor_exposure_period_in_us_trading_days
+        offset_in_us_trading_days=backtest_config.risk_factor_exposure_period_in_us_trading_days,
     )
     for stock in backtest_config.universe.stocks:
         stock_to_risk_factor_exposures[stock] = {
             risk_factor: get_stock_exposure_to_risk_factor(
-                risk_factor_exposure_start_date,
-                rebalance_date,
-                stock,
-                risk_factor
+                risk_factor_exposure_start_date, rebalance_date, stock, risk_factor
             )
             for risk_factor in risk_factors
         }
     return stock_to_risk_factor_exposures
-            
+
 
 def filter_pairs_by_risk_factor_exposure(
-    backtest_config: BacktestConfig,
-    rebalance_date: datetime,
-    pairs: Collection[Pair]
+    backtest_config: BacktestConfig, rebalance_date: datetime, pairs: Collection[Pair]
 ) -> Collection[Pair]:
     pairs_filtered_by_risk_factor_exposure = []
     ticker_to_risk_factor_exposure = get_ticker_to_risk_factor_exposures(
@@ -347,24 +421,20 @@ def filter_pairs_by_risk_factor_exposure(
         backtest_config.risk_factor_to_similarity_threshold.keys(),
     )
     breakpoint()
-    
 
 
 # TODO you were going to filter out pairs with ineligible dates inside the
 # get_tradable_pairs_for_backtest_dates function. This is so downstream functions
 # like filter_pairs_by_risk_factor_exposure can assume stocks have valid data
 def get_pairs_to_backtest(
-    backtest_config: BacktestConfig,
-    rebalance_date: datetime
+    backtest_config: BacktestConfig, rebalance_date: datetime
 ) -> Collection[Pair]:
-    all_pairs_in_universe = get_tradable_pairs_for_backtest_dates(backtest_config.universe.stocks)
+    all_pairs_in_universe = get_tradable_pairs_for_backtest_period(backtest_config, rebalance_date)
+    breakpoint()
     pairs_with_common_sector = filter_pairs_by_common_sector(all_pairs_in_universe)
     pairs_with_common_risk_factors = filter_pairs_by_risk_factor_exposure(
-        backtest_config,
-        rebalance_date,
-        pairs_with_common_sector
+        backtest_config, rebalance_date, pairs_with_common_sector
     )
-
 
 
 # if __name__ == "__main__":

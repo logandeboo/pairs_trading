@@ -17,7 +17,7 @@ from src.backtest.backtest_config import BacktestConfig
 from src.backtest.backtest_result import BacktestResult
 from src.time_series_utils import (
     add_n_us_trading_days_to_date,
-    subtract_n_us_trading_days_from_date
+    subtract_n_us_trading_days_from_date,
 )
 from src.pair_selection import get_pairs_to_backtest
 from src.time_series_utils import get_rebalance_dates
@@ -27,19 +27,20 @@ _TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
 _LONG_POSITION_FLAG = 1
 _SHORT_POSITION_FLAG = -1
 
+
 class Backtest:
 
     def __init__(self, backtest_config: BacktestConfig) -> None:
         self.backtest_config = backtest_config
-    
+
     def run(self) -> BacktestResult:
         rebalance_dates = get_rebalance_dates(
             self.backtest_config.start_date,
             self.backtest_config.end_date,
-            self.backtest_config.rebalance_freq_in_us_trading_days)
+            self.backtest_config.rebalance_freq_in_us_trading_days,
+        )
         for rebalance_date in rebalance_dates:
             pairs = get_pairs_to_backtest(self.backtest_config, rebalance_date)
-
 
 
 # NOTE consider triggering condition as the spread converges back

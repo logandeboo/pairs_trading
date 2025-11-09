@@ -6,16 +6,11 @@ from statsmodels.tsa.stattools import adfuller, coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 from src.time_series_utils import (
     add_n_us_trading_days_to_date,
-    filter_price_history_series_or_df_by_date_inclusive,
+    filter_series_or_df_by_dates,
 )
 from src.stock import Stock
-from src.risk.risk_factor import (
-    RiskFactor
-)
-from src.risk.risk_factors import (
-    RISK_FREE_RATE,
-    RISK_FREE_RATE_COLUMN_NAME
-)
+from src.risk.risk_factor import RiskFactor
+from src.risk.risk_factors import RISK_FREE_RATE, RISK_FREE_RATE_COLUMN_NAME
 
 _TICKER_ONE_INDEX = 0
 _TICKER_TWO_INDEX = 1
@@ -38,7 +33,9 @@ def get_pair_spread_series(
     return ticker1_price_series - gamma * ticker2_price_series
 
 
-def calculate_regression_coefficient(x_series: pd.Series[float], y_series: pd.Series[float]) -> float:
+def calculate_regression_coefficient(
+    x_series: pd.Series[float], y_series: pd.Series[float]
+) -> float:
     slope, _ = np.polyfit(x_series.values, y_series.values, deg=1)
     return float(slope)
 
@@ -162,46 +159,38 @@ def get_pair_spread_rolling_z_score_series(
         backtest_start_date_adj_for_z_score_rolling_window,
         offset_in_us_trading_days=z_score_window_in_trading_days,
     )
-    return filter_price_history_series_or_df_by_date_inclusive(
+    return filter_series_or_df_by_dates(
         spread_rolling_z_score_series_start_date,
         spread_rolling_z_score_series_end_date,
         spread_rolling_z_score_series,
     )
+
 
 def get_excess_stock_return_df(
     start_date: datetime,
     end_date: datetime,
     stock: Stock,
 ) -> pd.Series:
-    stock_daily_returns_df = filter_price_history_series_or_df_by_date_inclusive(
-        start_date,
-        end_date,
-        stock.daily_returns_df
+    stock_daily_returns_df = filter_series_or_df_by_dates(
+        start_date, end_date, stock.daily_returns_df
     )
-    risk_free_daily_returns_df = filter_price_history_series_or_df_by_date_inclusive(
-        start_date,
-        end_date,
-        RISK_FREE_RATE.returns_df
+    risk_free_daily_returns_df = filter_series_or_df_by_dates(
+        start_date, end_date, RISK_FREE_RATE.returns_df
     )
-    joined_df = stock_daily_returns_df.join(risk_free_daily_returns_df, how='inner')
+    joined_df = stock_daily_returns_df.join(risk_free_daily_returns_df, how="inner")
     stock_excess_return_column_name = f"{stock.ticker}_excess_return"
-    joined_df[stock_excess_return_column_name] = joined_df[stock.ticker] - joined_df[RISK_FREE_RATE_COLUMN_NAME]
+    joined_df[stock_excess_return_column_name] = (
+        joined_df[stock.ticker] - joined_df[RISK_FREE_RATE_COLUMN_NAME]
+    )
     return joined_df[[stock_excess_return_column_name]]
 
 
 def get_stock_exposure_to_risk_factor(
-    start_date: datetime,
-    end_date: datetime,
-    stock: Stock,
-    risk_factor: RiskFactor
+    start_date: datetime, end_date: datetime, stock: Stock, risk_factor: RiskFactor
 ) -> float:
-    excess_stock_returns_df = get_excess_stock_return_df(
-        start_date,
-        end_date,
-        stock
-    )
-    joined_df = risk_factor.returns_df.join(excess_stock_returns_df, how='inner')
+    excess_stock_returns_df = get_excess_stock_return_df(start_date, end_date, stock)
+    joined_df = risk_factor.returns_df.join(excess_stock_returns_df, how="inner")
     return calculate_regression_coefficient(
-        joined_df.iloc[:,0],
-        joined_df.iloc[:,1],
+        joined_df.iloc[:, 0],
+        joined_df.iloc[:, 1],
     )

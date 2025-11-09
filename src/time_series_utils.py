@@ -36,7 +36,7 @@ def add_n_us_trading_days_to_date(
     ).to_pydatetime()
 
 
-def filter_price_history_series_or_df_by_date_inclusive(
+def filter_series_or_df_by_dates(
     start_date: datetime,
     end_date: datetime,
     df_or_series_with_date_index: Union[pd.DataFrame, pd.Series],
@@ -55,9 +55,10 @@ def filter_price_history_df_by_pair_and_date(
     all_tickers_price_history_df: pd.DataFrame,
 ) -> pd.DataFrame:
     pair_price_history_df = all_tickers_price_history_df[[ticker_one, ticker_two]]
-    return filter_price_history_series_or_df_by_date_inclusive(
+    return filter_series_or_df_by_dates(
         start_date, end_date, pair_price_history_df
     ).dropna()
+
 
 def get_rebalance_dates(
     start_date: datetime,
@@ -68,8 +69,5 @@ def get_rebalance_dates(
     date = start_date
     while date < end_date:
         all_rebalance_dates.append(date)
-        date = add_n_us_trading_days_to_date(
-            date,
-            rebalance_freq_in_trading_days
-        )
+        date = add_n_us_trading_days_to_date(date, rebalance_freq_in_trading_days)
     return all_rebalance_dates

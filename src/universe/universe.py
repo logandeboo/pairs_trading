@@ -10,12 +10,14 @@ from src.data_loader import (
 )
 from src.statistical_utils import create_daily_returns
 
+
 class UniverseName(Enum):
     USA = "USA"
 
+
 # TODO this should be replaced with a larger set of US tickers
 # survivorship bias within the universe seems unavoidable without
-# spending $$$ 
+# spending $$$
 _UNIVERSE_NAME_TO_CONSITUENTS_FILE_PATH = {
     UniverseName.USA: Path("data/russell_3000_constituents.csv")
 }
@@ -24,16 +26,19 @@ _UNIVERSE_NAME_TO_TICKER_TO_SECTOR_MAP_FILE_PATH = {
     UniverseName.USA: Path("data/ticker_to_sector_map_usa.pkl")
 }
 
+
 def get_universe_ticker_to_sector_map(universe_name: UniverseName) -> Mapping[str, str]:
-    path_to_ticker_to_sector_map = _UNIVERSE_NAME_TO_TICKER_TO_SECTOR_MAP_FILE_PATH[universe_name]
+    path_to_ticker_to_sector_map = _UNIVERSE_NAME_TO_TICKER_TO_SECTOR_MAP_FILE_PATH[
+        universe_name
+    ]
     with open(path_to_ticker_to_sector_map, "rb") as ticker_to_sector_map_file:
         return pickle.load(ticker_to_sector_map_file)
+
 
 def get_all_tickers_in_universe(universe_name: UniverseName) -> list[tuple[str, str]]:
     path_to_ticker_list = _UNIVERSE_NAME_TO_CONSITUENTS_FILE_PATH[universe_name]
     ticker_df = pd.read_csv(path_to_ticker_list)
     return ticker_df.squeeze().to_list()
-
 
 
 def get_all_stocks_in_universe(universe_name: UniverseName) -> Collection[Stock]:
@@ -43,11 +48,16 @@ def get_all_stocks_in_universe(universe_name: UniverseName) -> Collection[Stock]
         Stock(
             ticker=ticker,
             sector=ticker_to_sector_map[ticker],
-            daily_price_history_df=(price_history_df := get_daily_price_history_df(ticker)),
-            daily_returns_df=(daily_returns_df := create_daily_returns(price_history_df)),
+            daily_price_history_df=(
+                price_history_df := get_daily_price_history_df(ticker)
+            ),
+            daily_returns_df=(
+                daily_returns_df := create_daily_returns(price_history_df)
+            ),
         )
         for ticker in universe_tickers
     ]
+
 
 class Universe:
 
