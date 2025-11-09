@@ -1,7 +1,7 @@
 from datetime import datetime
 from src.pair_selection import get_pairs_to_backtest
 from src.time_series_utils import (
-    subtract_n_us_trading_days_from_date,
+    subtract_us_trading_days_from_date,
     ONE_YEAR_IN_TRADING_DAYS,
     ONE_DAY_IN_TRADING_DAYS,
 )
@@ -40,17 +40,17 @@ def parse_pair_df():
 
 if __name__ == "__main__":
     backtest_end_date = datetime(2023, 1, 1)
-    backtest_start_date = subtract_n_us_trading_days_from_date(
+    backtest_start_date = subtract_us_trading_days_from_date(
         backtest_end_date, offset_in_us_trading_days=BACKTEST_PERIOD_IN_TRADING_DAYS
     )
-    cointegration_test_end_date = subtract_n_us_trading_days_from_date(
+    cointegration_test_end_date = subtract_us_trading_days_from_date(
         backtest_start_date, offset_in_us_trading_days=ONE_DAY_IN_TRADING_DAYS
     )
-    cointegration_test_start_date = subtract_n_us_trading_days_from_date(
+    cointegration_test_start_date = subtract_us_trading_days_from_date(
         cointegration_test_end_date,
         offset_in_us_trading_days=COINTEGRATION_TEST_PERIOD_IN_TRADING_DAYS,
     )
-    beta_calculation_start_date = subtract_n_us_trading_days_from_date(
+    beta_calculation_start_date = subtract_us_trading_days_from_date(
         backtest_start_date,
         offset_in_us_trading_days=BETA_ESTIMATION_PERIOD_IN_TRADING_DAYS,
     )

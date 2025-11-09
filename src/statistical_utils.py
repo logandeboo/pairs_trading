@@ -5,7 +5,7 @@ import numpy as np
 from statsmodels.tsa.stattools import adfuller, coint
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 from src.time_series_utils import (
-    add_n_us_trading_days_to_date,
+    add_us_trading_days_to_date,
     filter_series_or_df_by_dates,
 )
 from src.stock import Stock
@@ -155,7 +155,7 @@ def get_pair_spread_rolling_z_score_series(
     spread_rolling_z_score_series = (
         spread_series - spread_rolling_mean_series
     ) / spread_rolling_std_series
-    spread_rolling_z_score_series_start_date = add_n_us_trading_days_to_date(
+    spread_rolling_z_score_series_start_date = add_us_trading_days_to_date(
         backtest_start_date_adj_for_z_score_rolling_window,
         offset_in_us_trading_days=z_score_window_in_trading_days,
     )

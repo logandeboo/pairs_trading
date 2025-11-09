@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from typing import Collection, Sequence
+from typing import Collection, Mapping, NamedTuple
 from src.pair_selection import (
     filter_price_history_df_by_pair_and_date,
 )
@@ -11,36 +11,27 @@ from src.statistical_utils import (
 )
 from src.time_series_utils import (
     subtract_us_trading_days_from_date,
+    add_us_trading_days_to_date,
     ONE_DAY_IN_TRADING_DAYS,
 )
-from src.backtest.backtest_config import BacktestConfig
-from src.backtest.backtest_result import BacktestResult
-from src.time_series_utils import (
-    add_us_trading_days_to_date,
-    subtract_us_trading_days_from_date,
-)
-from src.pair_selection import get_pairs_to_backtest
-from src.time_series_utils import get_rebalance_dates
-
+from src.simulation.simulation_config import SimulationConfig
+from src.simulation.simulation_result import SimulationResult
 
 _TRADE_SIDE_COLUMN_NAME_SUFFIX = "_trade_side"
-_LONG_POSITION_FLAG = 1
-_SHORT_POSITION_FLAG = -1
+_ENTRANCE_THRESHOLD_IN_STANDARD_DEVIATIONS = 2
+_EXIT_THRESHOLD_IN_STANDARD_DEVIATIONS = 0
+_EXIT_THRESHOLD_ABSOLUTE_TOLERANCE = 0.1
+_TICKER_LONG_POSITION_FLAG = 1
+_TICKER_SHORT_POSITION_FLAG = -1
 
+class Simulation:
 
-class Backtest:
+    def __init__(self, simulation_config: SimulationConfig) -> None:
+        self.simulation_config = simulation_config
 
-    def __init__(self, backtest_config: BacktestConfig) -> None:
-        self.backtest_config = backtest_config
-
-    def run(self) -> BacktestResult:
-        rebalance_dates = get_rebalance_dates(
-            self.backtest_config.start_date,
-            self.backtest_config.end_date,
-            self.backtest_config.rebalance_freq_in_us_trading_days,
-        )
-        for rebalance_date in rebalance_dates:
-            pairs = get_pairs_to_backtest(self.backtest_config, rebalance_date)
+    # TODO most of the code that should go here exists already
+    def run(self) -> SimulationResult:
+        raise NotImplementedError
 
 
 # NOTE consider triggering condition as the spread converges back
@@ -91,17 +82,17 @@ def enter_position_at_current_date(
 
     if is_long_ticker_one:
         pair_trade_signals_by_date_df.loc[date, ticker_one_trade_side_column_name] = (
-            _LONG_POSITION_FLAG
+            _TICKER_LONG_POSITION_FLAG
         )
         pair_trade_signals_by_date_df.loc[date, ticker_two_trade_side_column_name] = (
-            _SHORT_POSITION_FLAG
+            _TICKER_SHORT_POSITION_FLAG
         )
     else:
         pair_trade_signals_by_date_df.loc[date, ticker_one_trade_side_column_name] = (
-            _SHORT_POSITION_FLAG
+            _TICKER_SHORT_POSITION_FLAG
         )
         pair_trade_signals_by_date_df.loc[date, ticker_two_trade_side_column_name] = (
-            _LONG_POSITION_FLAG
+            _TICKER_LONG_POSITION_FLAG
         )
     return pair_trade_signals_by_date_df
 
@@ -111,8 +102,8 @@ def set_short_spread_trade_positions_for_date(
     signal_date: datetime,
 ) -> pd.DataFrame:
     pair_trade_signals_by_date_df.loc[signal_date] = [
-        _LONG_POSITION_FLAG,
-        _SHORT_POSITION_FLAG,
+        _TICKER_LONG_POSITION_FLAG,
+        _TICKER_SHORT_POSITION_FLAG,
     ]
 
 
@@ -121,8 +112,8 @@ def set_long_spread_trade_positions_for_date(
     signal_date: datetime,
 ) -> pd.DataFrame:
     pair_trade_signals_by_date_df.loc[signal_date] = [
-        _SHORT_POSITION_FLAG,
-        _LONG_POSITION_FLAG,
+        _TICKER_SHORT_POSITION_FLAG,
+        _TICKER_LONG_POSITION_FLAG,
     ]
 
 
@@ -201,8 +192,8 @@ def should_exit_current_trade(
 
 # NOTE implementation was changed in caller to add an extra day to
 # the beginning of the z score series so a trade can be initiated
-# on day 0 of the backtest period. Hence why the loop starts at 1.
-# Day 0 is one day before the backtest period start.
+# on day 0 of the simulation period. Hence why the loop starts at 1.
+# Day 0 is one day before the simulation period start.
 # TODO this should be refactored
 def get_daily_pair_trade_signals_df(
     ticker_one: str,
@@ -282,18 +273,18 @@ def get_paired_tickers_daily_return_df(
 
 
 # TODO this needs to be cleaned up
-def get_backtest_returns_by_ticker_df(
-    backtest_start_date: datetime,
-    backtest_end_date: datetime,
+def get_simulated_returns_by_portfolio_tickers_df(
+    simulation_start_date: datetime,
+    simulation_end_date: datetime,
     pairs: Collection[tuple[str, str]],
     all_tickers_price_history_df: pd.DataFrame,
     *,
     spread_z_score_rolling_window_in_trading_days: int,
 ) -> pd.DataFrame:
     all_tickers_daily_return_dfs = []
-    backtest_start_date_adj_for_z_score_rolling_window = (
+    start_date_for_simulation_adj_for_z_score_rolling_window = (
         subtract_us_trading_days_from_date(
-            backtest_start_date,
+            simulation_start_date,
             offset_in_us_trading_days=spread_z_score_rolling_window_in_trading_days
             + ONE_DAY_IN_TRADING_DAYS,
         )
@@ -302,13 +293,13 @@ def get_backtest_returns_by_ticker_df(
         pair_price_history_df = filter_price_history_df_by_pair_and_date(
             ticker_one,
             ticker_two,
-            backtest_start_date_adj_for_z_score_rolling_window,
-            backtest_end_date,
+            start_date_for_simulation_adj_for_z_score_rolling_window,
+            simulation_end_date,
             all_tickers_price_history_df,
         )
         spread_rolling_z_score_series = get_pair_spread_rolling_z_score_series(
-            backtest_start_date_adj_for_z_score_rolling_window,
-            backtest_end_date,
+            start_date_for_simulation_adj_for_z_score_rolling_window,
+            simulation_end_date,
             pair_price_history_df,
             z_score_window_in_trading_days=spread_z_score_rolling_window_in_trading_days,
         )

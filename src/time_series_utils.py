@@ -18,7 +18,7 @@ class USTradingCalendar(USFederalHolidayCalendar):
     ] + [GoodFriday]
 
 
-def subtract_n_us_trading_days_from_date(
+def subtract_us_trading_days_from_date(
     date: datetime, *, offset_in_us_trading_days: int
 ) -> datetime:
     trading_day = CustomBusinessDay(calendar=USTradingCalendar())
@@ -27,7 +27,7 @@ def subtract_n_us_trading_days_from_date(
     ).to_pydatetime()
 
 
-def add_n_us_trading_days_to_date(
+def add_us_trading_days_to_date(
     date: datetime, offset_in_us_trading_days: int
 ) -> datetime:
     trading_day = CustomBusinessDay(calendar=USTradingCalendar())
@@ -69,5 +69,5 @@ def get_rebalance_dates(
     date = start_date
     while date < end_date:
         all_rebalance_dates.append(date)
-        date = add_n_us_trading_days_to_date(date, rebalance_freq_in_trading_days)
+        date = add_us_trading_days_to_date(date, rebalance_freq_in_trading_days)
     return all_rebalance_dates
